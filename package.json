@@ -1,0 +1,68 @@
+{
+  "name": "helm-terminal",
+  "version": "0.1.0",
+  "description": "HELM - AI-powered terminal. Powered by LANA AI.",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev:react": "vite --port 5173",
+    "dev:electron": "sleep 2 && tsc -p tsconfig.main.json && VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "build": "npm run build:react && npm run build:electron",
+    "build:react": "vite build",
+    "build:electron": "tsc -p tsconfig.main.json",
+    "package": "electron-builder",
+    "start": "electron .",
+    "setup:db": "./scripts/setup-database.sh",
+    "postinstall": "electron-rebuild -f -w node-pty"
+  },
+  "keywords": [
+    "terminal",
+    "helm",
+    "lana-ai",
+    "ai-terminal",
+    "education",
+    "learning"
+  ],
+  "author": "RedRooster Technologies Inc.",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.1.0",
+    "openai": "^6.29.0",
+    "pg": "^8.13.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "build": {
+    "appId": "com.redrooster.helm",
+    "productName": "HELM",
+    "icon": "build/icon.icns",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ]
+  }
+}

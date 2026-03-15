@@ -1,0 +1,15 @@
+.terminal-pane .pane-content {
+  padding: 0;
+}
+
+.ask-claude-bar {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: #252526;
+  border-bottom: 1px solid #333;
+}
+
+.ask-claude-bar input {
+  flex: 1;
+}

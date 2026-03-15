@@ -1,0 +1,135 @@
+.address-bar-container {
+  position: relative;
+  width: 100%;
+  background: #252526;
+  border-bottom: 1px solid #333;
+  padding: 10px 16px;
+  padding-left: 16px;
+}
+
+.address-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: #3c3c3c;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 4px;
+  transition: all 0.2s;
+}
+
+.address-bar:focus-within {
+  border-color: #0e639c;
+  box-shadow: 0 0 0 2px rgba(14, 99, 156, 0.2);
+}
+
+.address-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  color: #888;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .address-icon {
+  color: #999;
+}
+
+.address-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  font-size: 14px;
+  font-family: 'Helvetica Neue', 'Helvetica', -apple-system, sans-serif;
+  padding: 8px 12px;
+  outline: none;
+}
+
+.address-input::placeholder {
+  color: #888;
+}
+
+.go-button {
+  background: #0e639c;
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.go-button:hover {
+  background: #1177bb;
+}
+
+.go-button:active {
+  background: #0d5a8f;
+  transform: scale(0.98);
+}
+
+.settings-btn {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  color: #888;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.settings-btn:hover {
+  background: #4c4c4c;
+  color: #d4d4d4;
+}
+
+.suggestions-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 16px;
+  right: 16px;
+  background: #2d2d30;
+  border: 1px solid #555;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.suggestion-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.1s;
+  font-size: 13px;
+  color: #d4d4d4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.suggestion-item:hover,
+.suggestion-item.selected {
+  background: #3c3c3c;
+}
+
+.suggestion-item.selected {
+  border-left: 3px solid #0e639c;
+}
+
+.suggestion-item:first-child {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.suggestion-item:last-child {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}

@@ -1,0 +1,98 @@
+.explain-pane .loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  gap: 16px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #333;
+  border-top-color: #0e639c;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #888;
+  text-align: center;
+  padding: 20px;
+}
+
+.explanation {
+  max-width: 600px;
+}
+
+.command-display {
+  background: #252526;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  border-left: 3px solid #0e639c;
+}
+
+.command-display code {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  color: #4ec9b0;
+}
+
+.explanation section {
+  margin-bottom: 24px;
+}
+
+.explanation h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #4fc3f7;
+}
+
+.explanation p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #d4d4d4;
+}
+
+.explanation ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.explanation li {
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 6px 0;
+  padding-left: 20px;
+  position: relative;
+  color: #d4d4d4;
+}
+
+.explanation li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: #0e639c;
+}
+
+.undo-section {
+  background: #2d2d30;
+  padding: 12px;
+  border-radius: 6px;
+  border-left: 3px solid #e5c07b;
+}
+
+.undo-section h3 {
+  color: #e5c07b;
+}
