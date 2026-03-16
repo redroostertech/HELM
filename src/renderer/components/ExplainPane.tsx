@@ -13,6 +13,8 @@ interface ExplainPaneProps {
   explanation: ExplanationData | null;
   isLoading: boolean;
   selectedCommand: any;
+  isPro?: boolean;
+  onUpgrade?: () => void;
 }
 
 function parseExplanation(exp: any): ExplanationData | null {
@@ -38,7 +40,7 @@ function parseExplanation(exp: any): ExplanationData | null {
   return exp;
 }
 
-export default function ExplainPane({ explanation: rawExplanation, isLoading, selectedCommand }: ExplainPaneProps) {
+export default function ExplainPane({ explanation: rawExplanation, isLoading, selectedCommand, isPro = false, onUpgrade }: ExplainPaneProps) {
   const explanation = parseExplanation(rawExplanation);
 
   return (
@@ -48,20 +50,33 @@ export default function ExplainPane({ explanation: rawExplanation, isLoading, se
       </div>
 
       <div className="pane-content">
-        {isLoading && (
+        {!isPro && (
+          <div className="explain-upgrade">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+            </svg>
+            <h3>Command Explanations</h3>
+            <p>Get AI-powered breakdowns of any terminal command.</p>
+            <button className="explain-upgrade-btn" onClick={onUpgrade}>
+              Upgrade to Pro
+            </button>
+          </div>
+        )}
+
+        {isPro && isLoading && (
           <div className="loading">
             <div className="spinner" />
             <p>Analyzing...</p>
           </div>
         )}
 
-        {!isLoading && !explanation && (
+        {isPro && !isLoading && !explanation && (
           <div className="empty-state">
             <p>Click a command in History to see an explanation.</p>
           </div>
         )}
 
-        {!isLoading && explanation && (
+        {isPro && !isLoading && explanation && (
           <div className="explanation">
             {selectedCommand && (
               <div className="command-display">

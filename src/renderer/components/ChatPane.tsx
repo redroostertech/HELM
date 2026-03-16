@@ -18,6 +18,8 @@ interface ChatPaneProps {
   isOpen: boolean;
   activeTabId: string;
   theme: string;
+  isPro?: boolean;
+  onUpgrade?: () => void;
 }
 
 function parseContent(text: string): { type: 'text' | 'code'; value: string; lang?: string }[] {
@@ -118,7 +120,7 @@ function saveConversations(convs: Conversation[]) {
   localStorage.setItem('helm-chats', JSON.stringify(convs));
 }
 
-export default function ChatPane({ isOpen, activeTabId, theme }: ChatPaneProps) {
+export default function ChatPane({ isOpen, activeTabId, theme, isPro = false, onUpgrade }: ChatPaneProps) {
   const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
   const [activeConvId, setActiveConvId] = useState(conversations[0].id);
   const [showHistory, setShowHistory] = useState(false);
@@ -228,6 +230,29 @@ export default function ChatPane({ isOpen, activeTabId, theme }: ChatPaneProps) 
   };
 
   if (!isOpen) return null;
+
+  // Upgrade gate for free users
+  if (!isPro) {
+    return (
+      <div className="chat-pane">
+        <div className="chat-pane-header">
+          <span className="chat-header-title">Chat</span>
+        </div>
+        <div className="chat-upgrade">
+          <div className="chat-upgrade-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <h3>AI Chat</h3>
+          <p>Ask questions, get command suggestions, and run code directly in your terminal.</p>
+          <button className="chat-upgrade-btn" onClick={onUpgrade}>
+            Upgrade to Pro
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // History view
   if (showHistory) {

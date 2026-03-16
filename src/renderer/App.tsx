@@ -75,6 +75,7 @@ function App() {
   const [showCloseTabConfirm, setShowCloseTabConfirm] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [usage, setUsage] = useState<any>(null);
 
   // Persist tabs
   useEffect(() => {
@@ -93,6 +94,8 @@ function App() {
         document.documentElement.setAttribute('data-theme', saved.theme || 'dark');
       }
     }).catch(() => {});
+
+    window.electronAPI.licenseGetUsage().then(setUsage).catch(() => {});
 
     // Listen for delete history event from settings
     const handler = () => setShowDeleteConfirm(true);
@@ -143,6 +146,12 @@ function App() {
     setShowExplainPane(true);
     setShowHistoryPane(false);
 
+    // Gate AI behind pro
+    if (!usage?.aiEnabled) {
+      setExplanation(null);
+      return;
+    }
+
     if (command) {
       // Check for cached explanation first
       try {
@@ -158,7 +167,6 @@ function App() {
       try {
         const exp = await window.electronAPI.aiExplain(command.input);
         setExplanation(exp);
-        // Save to database for persistence
         if (command.id) {
           try { await window.electronAPI.dbSaveExplanation(command.id, exp); } catch {}
         }
@@ -246,6 +254,8 @@ function App() {
           isOpen={chatOpen}
           activeTabId={activeTabId}
           theme={settings.theme}
+          isPro={usage?.aiEnabled}
+          onUpgrade={() => { setChatOpen(false); setSettingsOpen(true); }}
         />
         <div className="terminal-container">
           {tabs.map(tab => (
@@ -285,7 +295,13 @@ function App() {
                 <HistoryPane onCommandSelect={handleCommandSelect} selectedCommandId={selectedCommand?.id} />
               )}
               {showExplainPane && (
-                <ExplainPane explanation={explanation} isLoading={isExplaining} selectedCommand={selectedCommand} />
+                <ExplainPane
+                  explanation={explanation}
+                  isLoading={isExplaining}
+                  selectedCommand={selectedCommand}
+                  isPro={usage?.aiEnabled}
+                  onUpgrade={() => setSettingsOpen(true)}
+                />
               )}
             </div>
           </div>

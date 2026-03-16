@@ -467,6 +467,68 @@
   color: #333;
 }
 
+/* Upgrade gate */
+.chat-upgrade {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  text-align: center;
+  gap: 12px;
+}
+
+.chat-upgrade-icon {
+  color: #555;
+  margin-bottom: 4px;
+}
+
+[data-theme="light"] .chat-upgrade-icon {
+  color: #bbb;
+}
+
+.chat-upgrade h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0;
+}
+
+[data-theme="light"] .chat-upgrade h3 {
+  color: #333;
+}
+
+.chat-upgrade p {
+  font-size: 13px;
+  color: #888;
+  line-height: 1.5;
+  max-width: 240px;
+  margin: 0;
+}
+
+.chat-upgrade-btn {
+  background: #0e639c;
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: background 0.15s;
+}
+
+.chat-upgrade-btn:hover {
+  background: #1177bb;
+}
+
+.chat-upgrade-price {
+  font-size: 12px;
+  color: #666;
+}
+
 /* ===== Light Theme ===== */
 [data-theme="light"] .chat-pane {
   background: #f0f0f0;

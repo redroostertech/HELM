@@ -174,3 +174,54 @@
 [data-theme="light"] .loading p {
   color: #666;
 }
+
+/* Upgrade gate */
+.explain-upgrade {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  text-align: center;
+  gap: 10px;
+  color: #555;
+}
+
+[data-theme="light"] .explain-upgrade {
+  color: #bbb;
+}
+
+.explain-upgrade h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0;
+}
+
+[data-theme="light"] .explain-upgrade h3 {
+  color: #333;
+}
+
+.explain-upgrade p {
+  font-size: 13px;
+  color: #888;
+  max-width: 220px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.explain-upgrade-btn {
+  background: #0e639c;
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.explain-upgrade-btn:hover {
+  background: #1177bb;
+}
