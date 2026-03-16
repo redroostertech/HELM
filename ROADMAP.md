@@ -50,6 +50,23 @@
 
 ---
 
+## Phase 2.5: Claude Code Session Capture
+
+**Goal:** Persist Claude Code conversations as a permanent audit log, surviving compaction.
+
+- [ ] Detect Claude Code sessions in PTY output (pattern match on `❯` prompt, `⏺` markers, tool use blocks)
+- [ ] Flag terminal tabs as "Claude Code sessions" with visual indicator
+- [ ] Capture user prompts sent to Claude Code
+- [ ] Capture Claude Code responses (reasoning, tool calls, file edits, output)
+- [ ] Strip ANSI formatting while preserving semantic content
+- [ ] Store in `claude_code_sessions` table (prompt, response, files_touched, tools_used, timestamps)
+- [ ] Group multi-turn conversations correctly
+- [ ] Surface in Sessions panel with special Claude Code icon
+- [ ] Full conversation timeline view — survives compaction
+- [ ] Export Claude Code session as markdown
+
+---
+
 ## Phase 3: Local AI (llama.cpp)
 
 **Goal:** Bundle a local LLM so the app works offline with zero config.
