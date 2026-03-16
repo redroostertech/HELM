@@ -109,11 +109,16 @@ function loadConversations(): Conversation[] {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed.length > 0) {
-        // Deduplicate by id
-        const seen = new Set<string>();
+        // Deduplicate by id AND by title+message content
+        const seenIds = new Set<string>();
+        const seenContent = new Set<string>();
         const deduped = parsed.filter((c: any) => {
-          if (seen.has(c.id)) return false;
-          seen.add(c.id);
+          if (seenIds.has(c.id)) return false;
+          seenIds.add(c.id);
+          // Also dedup by content signature
+          const sig = c.title + '|' + (c.messages?.length || 0) + '|' + (c.messages?.[0]?.content || '');
+          if (seenContent.has(sig) && c.messages?.length > 0) return false;
+          seenContent.add(sig);
           return true;
         });
         return deduped.map((c: any) => ({ ...c, createdAt: new Date(c.createdAt) }));
