@@ -18,16 +18,14 @@ export interface License {
 
 const LICENSE_PATH = path.join(os.homedir(), '.helm-license.json');
 
-const FREE_LIMITS = {
-  aiCallsPerMonth: 50,          // Free users: 50 calls/month
-};
+// Free: terminal + history + tabs only. No AI.
+// Pro: all AI features (chat, explain, suggest). BYO key or HELM key.
+// Team: Pro + admin + shared config.
 
-const PRO_LIMITS = {
-  aiCallsPerMonth: 2000,        // Pro: 2000 calls/month
-};
-
-const TEAM_LIMITS = {
-  aiCallsPerMonth: 10000,       // Team: 10000 calls/month
+const TIER_FEATURES = {
+  free: { ai: false },
+  pro: { ai: true },
+  team: { ai: true },
 };
 
 export class LicenseManager {
@@ -93,29 +91,16 @@ export class LicenseManager {
     return this.license.tier;
   }
 
-  /** Check if user can make an AI call */
-  canMakeAICall(): boolean {
+  /** Check if user has AI access */
+  canUseAI(): boolean {
     const tier = this.getTier();
-    const limits = tier === 'team' ? TEAM_LIMITS : tier === 'pro' ? PRO_LIMITS : FREE_LIMITS;
-    return this.license.usageThisMonth.aiCalls < limits.aiCallsPerMonth;
+    return TIER_FEATURES[tier].ai;
   }
 
-  /** Get remaining AI calls */
-  getRemainingCalls(): number {
-    const tier = this.getTier();
-    const limits = tier === 'team' ? TEAM_LIMITS : tier === 'pro' ? PRO_LIMITS : FREE_LIMITS;
-    return Math.max(0, limits.aiCallsPerMonth - this.license.usageThisMonth.aiCalls);
-  }
-
-  /** Record an AI call */
+  /** Record an AI call (for analytics) */
   recordAICall(): void {
     this.license.usageThisMonth.aiCalls++;
     this.save();
-  }
-
-  /** Check if user has their own API key (bypass HELM usage limits) */
-  hasOwnKey(settings: any): boolean {
-    return !!(settings?.openaiApiKey || settings?.anthropicApiKey);
   }
 
   /** Activate a license key (would validate against backend) */
@@ -182,18 +167,15 @@ export class LicenseManager {
   /** Get usage summary for display */
   getUsageSummary(): {
     tier: UserTier;
+    aiEnabled: boolean;
     aiCallsUsed: number;
-    aiCallsLimit: number;
-    aiCallsRemaining: number;
     resetDate: string;
   } {
     const tier = this.getTier();
-    const limits = tier === 'team' ? TEAM_LIMITS : tier === 'pro' ? PRO_LIMITS : FREE_LIMITS;
     return {
       tier,
+      aiEnabled: TIER_FEATURES[tier].ai,
       aiCallsUsed: this.license.usageThisMonth.aiCalls,
-      aiCallsLimit: limits.aiCallsPerMonth,
-      aiCallsRemaining: this.getRemainingCalls(),
       resetDate: this.license.usageThisMonth.resetDate,
     };
   }

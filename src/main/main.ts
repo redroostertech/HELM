@@ -2,6 +2,11 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as dotenv from 'dotenv';
+
+// Load .env from project root (dev) or app resources (production)
+dotenv.config({ path: path.join(__dirname, '../../.env') });
+dotenv.config({ path: path.join(process.resourcesPath || '', '.env') });
 
 const SETTINGS_PATH = path.join(os.homedir(), '.helm-settings.json');
 
@@ -208,28 +213,20 @@ function setupIPCHandlers() {
 
   // AI handlers
   // AI handlers with usage tracking
-  const checkUsage = () => {
+  const checkAccess = () => {
     if (!licenseManager) return;
-    const settings = loadSettings();
-    // If user has their own key, don't enforce HELM limits
-    if (licenseManager.hasOwnKey(settings)) return;
-    // Otherwise check against HELM's bundled key limits
-    if (!licenseManager.canMakeAICall()) {
-      throw new Error('Monthly AI request limit reached. Upgrade to Pro for more, or add your own API key in Settings.');
+    if (!licenseManager.canUseAI()) {
+      throw new Error('AI features require a Pro subscription. Upgrade in Settings to unlock chat, explanations, and more.');
     }
   };
 
   const trackUsage = () => {
-    if (!licenseManager) return;
-    const settings = loadSettings();
-    if (!licenseManager.hasOwnKey(settings)) {
-      licenseManager.recordAICall();
-    }
+    licenseManager?.recordAICall();
   };
 
   ipcMain.handle('ai:ask', async (_, question: string, context?: string) => {
     if (!aiService) throw new Error('AI service not initialized');
-    checkUsage();
+    checkAccess();
     const result = await aiService.ask(question, context);
     trackUsage();
     return result;
@@ -237,7 +234,7 @@ function setupIPCHandlers() {
 
   ipcMain.handle('ai:explain', async (_, command: string) => {
     if (!aiService) throw new Error('AI service not initialized');
-    checkUsage();
+    checkAccess();
     const result = await aiService.explainCommand(command);
     trackUsage();
     return result;
@@ -245,7 +242,7 @@ function setupIPCHandlers() {
 
   ipcMain.handle('ai:suggest', async (_, intent: string, workingDir: string) => {
     if (!aiService) throw new Error('AI service not initialized');
-    checkUsage();
+    checkAccess();
     const result = await aiService.suggestCommand(intent, workingDir);
     trackUsage();
     return result;

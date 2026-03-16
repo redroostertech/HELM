@@ -83,37 +83,35 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
           </div>
         </section>
 
-        {/* Usage & Plan */}
+        {/* Plan */}
         <section className="settings-section">
-          <h3>Plan & Usage</h3>
+          <h3>Plan</h3>
           {usage && (
             <>
               <div className="setting-row">
                 <label>Current Plan</label>
                 <span className="plan-badge">{usage.tier.toUpperCase()}</span>
               </div>
-              <div className="setting-row">
-                <label>AI Requests</label>
-                <span className="settings-info-text">
-                  {hasOwnKey ? (
-                    'Unlimited (using your own key)'
-                  ) : (
-                    `${usage.aiCallsUsed} / ${usage.aiCallsLimit} this month`
-                  )}
-                </span>
-              </div>
-              {!hasOwnKey && (
-                <div className="usage-bar-container">
-                  <div
-                    className="usage-bar"
-                    style={{ width: `${Math.min(100, (usage.aiCallsUsed / usage.aiCallsLimit) * 100)}%` }}
-                  />
+              {usage.aiEnabled ? (
+                <div className="setting-row">
+                  <label>AI Features</label>
+                  <span className="key-status key-status-active" style={{ margin: 0, padding: '4px 10px' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    Enabled
+                  </span>
                 </div>
-              )}
-              {usage.tier === 'free' && !hasOwnKey && (
-                <p className="settings-hint">
-                  Upgrade to Pro for 2,000 requests/month, or add your own API key for unlimited use.
-                </p>
+              ) : (
+                <>
+                  <div className="setting-row">
+                    <label>AI Features</label>
+                    <span className="settings-info-text">Locked</span>
+                  </div>
+                  <p className="settings-hint">
+                    Upgrade to Pro ($12/mo) to unlock AI chat, command explanations, and suggestions.
+                  </p>
+                </>
               )}
             </>
           )}
@@ -123,7 +121,7 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
         <section className="settings-section">
           <h3>Bring Your Own Key</h3>
           <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
-            Add your own API key for unlimited requests — no HELM usage limits apply.
+            Pro subscribers can optionally use their own API key. Otherwise HELM provides the AI through our infrastructure.
           </p>
 
           <div className="setting-row">
