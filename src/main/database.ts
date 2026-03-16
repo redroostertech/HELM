@@ -287,6 +287,25 @@ export class DatabaseManager {
     return result.rows;
   }
 
+  async getExplanation(commandInput: string): Promise<any | null> {
+    const result = await this.pool.query(
+      `SELECT e.* FROM explanations e
+       JOIN commands c ON e.command_id = c.id
+       WHERE c.input = $1
+       ORDER BY e.id DESC LIMIT 1`,
+      [commandInput]
+    );
+    if (!result.rows[0]) return null;
+    const row = result.rows[0];
+    return {
+      summary: row.summary,
+      breakdown: row.breakdown,
+      expectedOutcome: row.expected_outcome,
+      failureModes: row.failure_modes,
+      undoGuidance: row.undo_guidance,
+    };
+  }
+
   async clearHistory(): Promise<void> {
     await this.pool.query('DELETE FROM explanations');
     await this.pool.query('DELETE FROM bookmarks');

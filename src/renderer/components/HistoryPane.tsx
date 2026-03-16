@@ -33,11 +33,12 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
     setBookmarks(bm);
   };
 
-  const handleBookmark = async (commandId: number) => {
-    const title = prompt('Bookmark title:');
-    if (title) {
-      await window.electronAPI.dbBookmarkCommand(commandId, title);
+  const handleBookmark = async (commandId: number, commandInput: string) => {
+    try {
+      await window.electronAPI.dbBookmarkCommand(commandId, commandInput);
       loadBookmarks();
+    } catch (err) {
+      console.error('Failed to bookmark:', err);
     }
   };
 
@@ -94,7 +95,7 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
                   <code>{cmd.input}</code>
                   <button
                     className="bookmark-btn"
-                    onClick={(e) => { e.stopPropagation(); handleBookmark(cmd.id); }}
+                    onClick={(e) => { e.stopPropagation(); handleBookmark(cmd.id, cmd.input); }}
                     title="Bookmark"
                   >
                     ★

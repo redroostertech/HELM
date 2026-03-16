@@ -1,3 +1,4 @@
+import ReactMarkdown from 'react-markdown';
 import './ExplainPane.css';
 
 interface ExplanationData {
@@ -14,7 +15,32 @@ interface ExplainPaneProps {
   selectedCommand: any;
 }
 
-export default function ExplainPane({ explanation, isLoading, selectedCommand }: ExplainPaneProps) {
+function parseExplanation(exp: any): ExplanationData | null {
+  if (!exp) return null;
+
+  // If it's a string (raw JSON or markdown), try to parse it
+  if (typeof exp === 'string') {
+    try {
+      return JSON.parse(exp);
+    } catch {
+      return { summary: exp, breakdown: [], expectedOutcome: '', failureModes: [], undoGuidance: null };
+    }
+  }
+
+  // If summary is a JSON string, try to parse it
+  if (typeof exp.summary === 'string' && exp.summary.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(exp.summary);
+      return { ...exp, ...parsed };
+    } catch {}
+  }
+
+  return exp;
+}
+
+export default function ExplainPane({ explanation: rawExplanation, isLoading, selectedCommand }: ExplainPaneProps) {
+  const explanation = parseExplanation(rawExplanation);
+
   return (
     <div className="pane explain-pane">
       <div className="pane-header">
@@ -24,14 +50,14 @@ export default function ExplainPane({ explanation, isLoading, selectedCommand }:
       <div className="pane-content">
         {isLoading && (
           <div className="loading">
-            <div className="spinner"></div>
-            <p>Asking Claude...</p>
+            <div className="spinner" />
+            <p>Analyzing...</p>
           </div>
         )}
 
         {!isLoading && !explanation && (
           <div className="empty-state">
-            <p>Select a command from history or ask Claude a question</p>
+            <p>Click a command in History to see an explanation.</p>
           </div>
         )}
 
@@ -43,17 +69,23 @@ export default function ExplainPane({ explanation, isLoading, selectedCommand }:
               </div>
             )}
 
-            <section>
-              <h3>Summary</h3>
-              <p>{explanation.summary}</p>
-            </section>
+            {explanation.summary && (
+              <section>
+                <h3>Summary</h3>
+                <div className="explain-markdown">
+                  <ReactMarkdown>{explanation.summary}</ReactMarkdown>
+                </div>
+              </section>
+            )}
 
             {explanation.breakdown && explanation.breakdown.length > 0 && (
               <section>
                 <h3>Breakdown</h3>
                 <ul>
                   {explanation.breakdown.map((item, i) => (
-                    <li key={i}>{item}</li>
+                    <li key={i}>
+                      <ReactMarkdown>{item}</ReactMarkdown>
+                    </li>
                   ))}
                 </ul>
               </section>
@@ -62,7 +94,9 @@ export default function ExplainPane({ explanation, isLoading, selectedCommand }:
             {explanation.expectedOutcome && (
               <section>
                 <h3>Expected Outcome</h3>
-                <p>{explanation.expectedOutcome}</p>
+                <div className="explain-markdown">
+                  <ReactMarkdown>{explanation.expectedOutcome}</ReactMarkdown>
+                </div>
               </section>
             )}
 
@@ -80,7 +114,9 @@ export default function ExplainPane({ explanation, isLoading, selectedCommand }:
             {explanation.undoGuidance && (
               <section className="undo-section">
                 <h3>How to Undo</h3>
-                <p>{explanation.undoGuidance}</p>
+                <div className="explain-markdown">
+                  <ReactMarkdown>{explanation.undoGuidance}</ReactMarkdown>
+                </div>
               </section>
             )}
           </div>

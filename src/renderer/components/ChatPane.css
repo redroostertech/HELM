@@ -186,6 +186,76 @@
   white-space: pre-wrap;
 }
 
+/* Markdown inside chat */
+.chat-markdown p {
+  margin: 0 0 8px;
+}
+
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+
+.chat-markdown h1 { font-size: 16px; }
+.chat-markdown h2 { font-size: 15px; }
+
+.chat-markdown ul, .chat-markdown ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.chat-markdown li {
+  margin-bottom: 4px;
+}
+
+.chat-markdown strong {
+  font-weight: 600;
+}
+
+.chat-inline-code {
+  font-family: 'Menlo', monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #4ec9b0;
+}
+
+[data-theme="light"] .chat-inline-code {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0b7c5f;
+}
+
+.chat-markdown blockquote {
+  border-left: 3px solid #555;
+  margin: 6px 0;
+  padding: 4px 12px;
+  color: #aaa;
+}
+
+[data-theme="light"] .chat-markdown blockquote {
+  border-left-color: #ccc;
+  color: #666;
+}
+
+.chat-markdown a {
+  color: #4fc3f7;
+  text-decoration: none;
+}
+
+.chat-markdown a:hover {
+  text-decoration: underline;
+}
+
+[data-theme="light"] .chat-markdown a {
+  color: #0e639c;
+}
+
 /* Code blocks inside chat */
 .chat-code-block {
   background: #1e1e1e;

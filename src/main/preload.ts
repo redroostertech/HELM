@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('db:bookmarkCommand', commandId, title, notes, tags),
   dbGetBookmarks: () =>
     ipcRenderer.invoke('db:getBookmarks'),
+  dbGetExplanation: (commandInput: string) =>
+    ipcRenderer.invoke('db:getExplanation', commandInput),
+  dbSaveExplanation: (commandId: number, explanation: any) =>
+    ipcRenderer.invoke('db:saveExplanation', commandId, explanation),
   dbGetSessions: () =>
     ipcRenderer.invoke('db:getSessions'),
   dbGetSessionCommands: (sessionId: number) =>
@@ -107,6 +111,8 @@ export interface ElectronAPI {
   dbGetCommand: (commandId: number) => Promise<any>;
   dbBookmarkCommand: (commandId: number, title: string, notes?: string, tags?: string[]) => Promise<number>;
   dbGetBookmarks: () => Promise<any[]>;
+  dbGetExplanation: (commandInput: string) => Promise<any>;
+  dbSaveExplanation: (commandId: number, explanation: any) => Promise<number>;
   dbGetSessions: () => Promise<any[]>;
   dbGetSessionCommands: (sessionId: number) => Promise<any[]>;
   dbClearHistory: () => Promise<boolean>;

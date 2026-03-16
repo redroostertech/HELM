@@ -254,6 +254,23 @@ function setupIPCHandlers() {
     return db.getLessons();
   });
 
+  ipcMain.handle('db:getExplanation', async (_, commandInput: string) => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getExplanation(commandInput);
+  });
+
+  ipcMain.handle('db:saveExplanation', async (_, commandId: number, explanation: any) => {
+    if (!db) throw new Error('Database not initialized');
+    return db.saveExplanation(
+      commandId,
+      explanation.summary || '',
+      explanation.breakdown || [],
+      explanation.expectedOutcome || '',
+      explanation.failureModes || [],
+      explanation.undoGuidance || null
+    );
+  });
+
   ipcMain.handle('db:getSessions', async () => {
     if (!db) throw new Error('Database not initialized');
     return db.getSessions();

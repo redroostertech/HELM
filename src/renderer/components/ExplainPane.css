@@ -96,3 +96,72 @@
 .undo-section h3 {
   color: #e5c07b;
 }
+
+/* Markdown in explanations */
+.explain-markdown p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #d4d4d4;
+}
+
+.explain-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.explain-markdown code {
+  font-family: 'Menlo', monospace;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #4ec9b0;
+}
+
+.explain-markdown strong {
+  font-weight: 600;
+}
+
+/* Light theme */
+[data-theme="light"] .command-display {
+  background: #f0f0f0;
+}
+
+[data-theme="light"] .command-display code {
+  color: #0b7c5f;
+}
+
+[data-theme="light"] .explanation h3 {
+  color: #0e639c;
+}
+
+[data-theme="light"] .explanation p,
+[data-theme="light"] .explain-markdown p {
+  color: #333;
+}
+
+[data-theme="light"] .explanation li {
+  color: #333;
+}
+
+[data-theme="light"] .explain-markdown code {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0b7c5f;
+}
+
+[data-theme="light"] .undo-section {
+  background: #fdf6e3;
+}
+
+[data-theme="light"] .undo-section h3 {
+  color: #b8860b;
+}
+
+[data-theme="light"] .spinner {
+  border-color: #ddd;
+  border-top-color: #0e639c;
+}
+
+[data-theme="light"] .loading p {
+  color: #666;
+}

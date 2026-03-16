@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import './ChatPane.css';
 
 interface ChatMessage {
@@ -100,8 +101,25 @@ function formatTime(date: Date): string {
   return date.toLocaleDateString();
 }
 
+function loadConversations(): Conversation[] {
+  try {
+    const saved = localStorage.getItem('helm-chats');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.length > 0) {
+        return parsed.map((c: any) => ({ ...c, createdAt: new Date(c.createdAt) }));
+      }
+    }
+  } catch {}
+  return [createConversation()];
+}
+
+function saveConversations(convs: Conversation[]) {
+  localStorage.setItem('helm-chats', JSON.stringify(convs));
+}
+
 export default function ChatPane({ isOpen, activeTabId, theme }: ChatPaneProps) {
-  const [conversations, setConversations] = useState<Conversation[]>(() => [createConversation()]);
+  const [conversations, setConversations] = useState<Conversation[]>(loadConversations);
   const [activeConvId, setActiveConvId] = useState(conversations[0].id);
   const [showHistory, setShowHistory] = useState(false);
   const [input, setInput] = useState('');
@@ -111,6 +129,11 @@ export default function ChatPane({ isOpen, activeTabId, theme }: ChatPaneProps) 
 
   const activeConv = conversations.find(c => c.id === activeConvId) || conversations[0];
   const messages = activeConv?.messages || [];
+
+  // Persist chats
+  useEffect(() => {
+    saveConversations(conversations);
+  }, [conversations]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -279,14 +302,21 @@ export default function ChatPane({ isOpen, activeTabId, theme }: ChatPaneProps) 
         {messages.map((msg, i) => (
           <div key={i} className={`chat-bubble chat-bubble-${msg.role}`}>
             {msg.role === 'assistant' ? (
-              <div className="chat-bubble-content">
-                {parseContent(msg.content).map((part, j) =>
-                  part.type === 'code' ? (
-                    <CodeBlock key={j} code={part.value} lang={part.lang} onRun={runCommand} />
-                  ) : (
-                    <span key={j} className="chat-text">{part.value}</span>
-                  ),
-                )}
+              <div className="chat-bubble-content chat-markdown">
+                <ReactMarkdown
+                  components={{
+                    code({ className, children, ...props }) {
+                      const match = /language-(\w+)/.exec(className || '');
+                      const codeStr = String(children).replace(/\n$/, '');
+                      if (match || (codeStr.includes('\n') && !className)) {
+                        return <CodeBlock code={codeStr} lang={match?.[1]} onRun={runCommand} />;
+                      }
+                      return <code className="chat-inline-code" {...props}>{children}</code>;
+                    },
+                  }}
+                >
+                  {msg.content}
+                </ReactMarkdown>
               </div>
             ) : (
               <div className="chat-bubble-content">

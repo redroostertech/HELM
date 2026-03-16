@@ -144,11 +144,25 @@ function App() {
     setShowHistoryPane(false);
 
     if (command) {
+      // Check for cached explanation first
+      try {
+        const cached = await window.electronAPI.dbGetExplanation(command.input);
+        if (cached) {
+          setExplanation(cached);
+          return;
+        }
+      } catch {}
+
+      // Fetch from AI
       setIsExplaining(true);
       try {
         const exp = await window.electronAPI.aiExplain(command.input);
         setExplanation(exp);
-      } catch (error) {
+        // Save to database for persistence
+        if (command.id) {
+          try { await window.electronAPI.dbSaveExplanation(command.id, exp); } catch {}
+        }
+      } catch {
         setExplanation({
           summary: 'Failed to get explanation. Check your API key in Settings.',
           breakdown: [], expectedOutcome: 'Error', failureModes: [], undoGuidance: null,

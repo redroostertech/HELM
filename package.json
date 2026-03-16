@@ -46,7 +46,8 @@
     "openai": "^6.29.0",
     "pg": "^8.13.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-markdown": "^10.1.0"
   },
   "build": {
     "appId": "com.redrooster.helm",
