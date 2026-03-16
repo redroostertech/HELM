@@ -215,10 +215,11 @@ function setupIPCHandlers() {
   // AI handlers with usage tracking
   const checkAccess = () => {
     if (!licenseManager) return;
-    if (!licenseManager.hasAIFeature()) {
-      throw new Error('AI features require a paid plan. Upgrade to BYOK ($2.99/mo), Basic ($9.99/mo), or Pro ($12.99/mo).');
-    }
     if (!licenseManager.canUseAI()) {
+      const tier = licenseManager.getTier();
+      if (tier === 'free') {
+        throw new Error('You\'ve used all 5 free explanations this month. Upgrade for more AI access.');
+      }
       throw new Error('Monthly AI request limit reached. Upgrade your plan for more requests.');
     }
   };

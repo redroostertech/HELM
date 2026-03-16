@@ -126,17 +126,7 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                     </div>
                   )}
                 </>
-              ) : (
-                <>
-                  <div className="setting-row">
-                    <label>AI Features</label>
-                    <span className="settings-info-text">Locked</span>
-                  </div>
-                  <p className="settings-hint">
-                    Unlock AI chat, explanations, and suggestions with a paid plan.
-                  </p>
-                </>
-              )}
+              ) : null}
             </>
           )}
         </section>

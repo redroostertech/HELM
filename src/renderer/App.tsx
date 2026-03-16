@@ -146,12 +146,6 @@ function App() {
     setShowExplainPane(true);
     setShowHistoryPane(false);
 
-    // Gate AI behind pro
-    if (!usage?.aiEnabled) {
-      setExplanation(null);
-      return;
-    }
-
     if (command) {
       // Check for cached explanation first
       try {
@@ -254,7 +248,7 @@ function App() {
           isOpen={chatOpen}
           activeTabId={activeTabId}
           theme={settings.theme}
-          isPro={usage?.aiEnabled}
+          isPro={true}
           onUpgrade={() => { setChatOpen(false); setSettingsOpen(true); }}
         />
         <div className="terminal-container">
@@ -299,7 +293,7 @@ function App() {
                   explanation={explanation}
                   isLoading={isExplaining}
                   selectedCommand={selectedCommand}
-                  isPro={usage?.aiEnabled}
+                  isPro={true}
                   onUpgrade={() => setSettingsOpen(true)}
                 />
               )}
