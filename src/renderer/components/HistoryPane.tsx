@@ -10,12 +10,14 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
   const [commands, setCommands] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<any[]>([]);
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<number>>(new Set());
+  const [explainedCmds, setExplainedCmds] = useState<Set<string>>(new Set());
   const [view, setView] = useState<'history' | 'bookmarks'>('history');
 
   useEffect(() => {
     loadCommands();
     loadBookmarks();
     loadBookmarkedIds();
+    loadExplainedCommands();
     const interval = setInterval(loadCommands, 3000);
     return () => clearInterval(interval);
   }, []);
@@ -39,6 +41,13 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
     try {
       const ids = await window.electronAPI.dbGetBookmarkedCommandIds();
       setBookmarkedIds(new Set(ids));
+    } catch {}
+  };
+
+  const loadExplainedCommands = async () => {
+    try {
+      const inputs = await window.electronAPI.dbGetExplainedCommandInputs();
+      setExplainedCmds(new Set(inputs));
     } catch {}
   };
 
@@ -120,6 +129,9 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
                   <span className="timestamp">{formatTimestamp(cmd.last_used || cmd.timestamp)}</span>
                   {cmd.use_count > 1 && (
                     <span className="use-count">{cmd.use_count}x</span>
+                  )}
+                  {explainedCmds.has(cmd.input) && (
+                    <span className="explained-badge" title="Explanation available">explained</span>
                   )}
                   <span className="working-dir">{cmd.working_dir}</span>
                 </div>

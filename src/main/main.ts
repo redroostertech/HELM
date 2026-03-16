@@ -265,6 +265,11 @@ function setupIPCHandlers() {
     return db.getLessons();
   });
 
+  ipcMain.handle('db:getExplainedCommandInputs', async () => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getExplainedCommandInputs();
+  });
+
   ipcMain.handle('db:getExplanation', async (_, commandInput: string) => {
     if (!db) throw new Error('Database not initialized');
     return db.getExplanation(commandInput);

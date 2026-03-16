@@ -122,6 +122,21 @@
   flex-shrink: 0;
 }
 
+.explained-badge {
+  background: #2d3a5a;
+  color: #4fc3f7;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .explained-badge {
+  background: #e0f0ff;
+  color: #0e639c;
+}
+
 .working-dir {
   color: #666;
   font-family: monospace;

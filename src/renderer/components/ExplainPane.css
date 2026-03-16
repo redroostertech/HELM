@@ -35,17 +35,26 @@
 }
 
 .command-display {
-  background: #252526;
-  padding: 12px;
-  border-radius: 6px;
+  background: #1e1e1e;
+  padding: 14px 16px;
+  border-radius: 8px;
   margin-bottom: 20px;
-  border-left: 3px solid #0e639c;
+  border: 1px solid #333;
 }
 
 .command-display code {
   font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
-  font-size: 14px;
+  font-size: 13px;
   color: #4ec9b0;
+}
+
+[data-theme="light"] .command-display {
+  background: #f5f5f5;
+  border-color: #ddd;
+}
+
+[data-theme="light"] .command-display code {
+  color: #0b7c5f;
 }
 
 .explanation section {

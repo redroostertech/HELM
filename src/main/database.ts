@@ -296,6 +296,13 @@ export class DatabaseManager {
     return result.rows;
   }
 
+  async getExplainedCommandInputs(): Promise<string[]> {
+    const result = await this.pool.query(
+      `SELECT DISTINCT c.input FROM explanations e JOIN commands c ON e.command_id = c.id`
+    );
+    return result.rows.map(r => r.input);
+  }
+
   async getExplanation(commandInput: string): Promise<any | null> {
     const result = await this.pool.query(
       `SELECT e.* FROM explanations e

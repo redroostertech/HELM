@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('db:getBookmarkedCommandIds'),
   dbGetBookmarks: () =>
     ipcRenderer.invoke('db:getBookmarks'),
+  dbGetExplainedCommandInputs: () =>
+    ipcRenderer.invoke('db:getExplainedCommandInputs'),
   dbGetExplanation: (commandInput: string) =>
     ipcRenderer.invoke('db:getExplanation', commandInput),
   dbSaveExplanation: (commandId: number, explanation: any) =>
@@ -117,6 +119,7 @@ export interface ElectronAPI {
   dbUnbookmarkCommand: (commandId: number) => Promise<boolean>;
   dbGetBookmarkedCommandIds: () => Promise<number[]>;
   dbGetBookmarks: () => Promise<any[]>;
+  dbGetExplainedCommandInputs: () => Promise<string[]>;
   dbGetExplanation: (commandInput: string) => Promise<any>;
   dbSaveExplanation: (commandId: number, explanation: any) => Promise<number>;
   dbGetSessions: () => Promise<any[]>;
