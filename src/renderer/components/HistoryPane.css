@@ -91,6 +91,15 @@
   background: transparent;
 }
 
+.bookmark-btn.bookmarked {
+  color: #e5c07b;
+  opacity: 1;
+}
+
+[data-theme="light"] .bookmark-btn.bookmarked {
+  color: #d4a017;
+}
+
 .command-meta {
   display: flex;
   gap: 12px;

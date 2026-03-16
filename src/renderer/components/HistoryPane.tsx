@@ -9,11 +9,13 @@ interface HistoryPaneProps {
 export default function HistoryPane({ onCommandSelect, selectedCommandId }: HistoryPaneProps) {
   const [commands, setCommands] = useState<any[]>([]);
   const [bookmarks, setBookmarks] = useState<any[]>([]);
+  const [bookmarkedIds, setBookmarkedIds] = useState<Set<number>>(new Set());
   const [view, setView] = useState<'history' | 'bookmarks'>('history');
 
   useEffect(() => {
     loadCommands();
     loadBookmarks();
+    loadBookmarkedIds();
     const interval = setInterval(loadCommands, 3000);
     return () => clearInterval(interval);
   }, []);
@@ -33,12 +35,25 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
     setBookmarks(bm);
   };
 
-  const handleBookmark = async (commandId: number, commandInput: string) => {
+  const loadBookmarkedIds = async () => {
     try {
-      await window.electronAPI.dbBookmarkCommand(commandId, commandInput);
+      const ids = await window.electronAPI.dbGetBookmarkedCommandIds();
+      setBookmarkedIds(new Set(ids));
+    } catch {}
+  };
+
+  const toggleBookmark = async (commandId: number, commandInput: string) => {
+    try {
+      if (bookmarkedIds.has(commandId)) {
+        await window.electronAPI.dbUnbookmarkCommand(commandId);
+        setBookmarkedIds(prev => { const next = new Set(prev); next.delete(commandId); return next; });
+      } else {
+        await window.electronAPI.dbBookmarkCommand(commandId, commandInput);
+        setBookmarkedIds(prev => new Set(prev).add(commandId));
+      }
       loadBookmarks();
     } catch (err) {
-      console.error('Failed to bookmark:', err);
+      console.error('Bookmark toggle failed:', err);
     }
   };
 
@@ -94,11 +109,11 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
                 <div className="command-header">
                   <code>{cmd.input}</code>
                   <button
-                    className="bookmark-btn"
-                    onClick={(e) => { e.stopPropagation(); handleBookmark(cmd.id, cmd.input); }}
-                    title="Bookmark"
+                    className={`bookmark-btn ${bookmarkedIds.has(cmd.id) ? 'bookmarked' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); toggleBookmark(cmd.id, cmd.input); }}
+                    title={bookmarkedIds.has(cmd.id) ? 'Remove bookmark' : 'Bookmark'}
                   >
-                    ★
+                    {bookmarkedIds.has(cmd.id) ? '★' : '☆'}
                   </button>
                 </div>
                 <div className="command-meta">

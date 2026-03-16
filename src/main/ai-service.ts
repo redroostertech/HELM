@@ -84,17 +84,29 @@ export function buildSuggestPrompt(intent: string, workingDir: string): string {
 }
 
 export function parseExplanation(text: string): AIExplanation {
+  // Try direct JSON parse
   try {
-    return JSON.parse(text);
-  } catch {
-    return {
-      summary: text.split('\n')[0] || 'Command explanation',
-      breakdown: text.split('\n').slice(1, -2),
-      expectedOutcome: 'See explanation above',
-      failureModes: ['Unknown'],
-      undoGuidance: null,
-    };
+    const parsed = JSON.parse(text);
+    if (parsed.summary) return parsed;
+  } catch {}
+
+  // Try extracting JSON from markdown code fences
+  const jsonMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (parsed.summary) return parsed;
+    } catch {}
   }
+
+  // Fallback: treat the entire text as a plain summary
+  return {
+    summary: text,
+    breakdown: [],
+    expectedOutcome: '',
+    failureModes: [],
+    undoGuidance: null,
+  };
 }
 
 export function parseSuggestion(text: string): AISuggestion {

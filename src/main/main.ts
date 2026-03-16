@@ -239,6 +239,17 @@ function setupIPCHandlers() {
     return db.bookmarkCommand(commandId, title, notes, tags);
   });
 
+  ipcMain.handle('db:unbookmarkCommand', async (_, commandId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    await db.unbookmarkCommand(commandId);
+    return true;
+  });
+
+  ipcMain.handle('db:getBookmarkedCommandIds', async () => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getBookmarkedCommandIds();
+  });
+
   ipcMain.handle('db:getBookmarks', async () => {
     if (!db) throw new Error('Database not initialized');
     return db.getBookmarks();

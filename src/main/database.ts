@@ -225,6 +225,15 @@ export class DatabaseManager {
     return result.rows[0].id;
   }
 
+  async unbookmarkCommand(commandId: number): Promise<void> {
+    await this.pool.query('DELETE FROM bookmarks WHERE command_id = $1', [commandId]);
+  }
+
+  async getBookmarkedCommandIds(): Promise<number[]> {
+    const result = await this.pool.query('SELECT DISTINCT command_id FROM bookmarks');
+    return result.rows.map(r => r.command_id);
+  }
+
   async getBookmarks(): Promise<Bookmark[]> {
     const result = await this.pool.query(`
       SELECT b.*, row_to_json(c.*) as command
