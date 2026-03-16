@@ -2,7 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-export type UserTier = 'free' | 'pro' | 'team';
+// BYOK ($2.99/mo): bring your own key, unlimited AI
+// Basic ($9.99/mo): HELM key, 500 AI calls/month
+// Pro ($12.99/mo): HELM key, 2000 AI calls/month
+
+export type UserTier = 'free' | 'byok' | 'basic' | 'pro';
 
 export interface License {
   tier: UserTier;
@@ -18,14 +22,11 @@ export interface License {
 
 const LICENSE_PATH = path.join(os.homedir(), '.helm-license.json');
 
-// Free: terminal + history + tabs only. No AI.
-// Pro: all AI features (chat, explain, suggest). BYO key or HELM key.
-// Team: Pro + admin + shared config.
-
-const TIER_FEATURES = {
-  free: { ai: false },
-  pro: { ai: true },
-  team: { ai: true },
+const TIER_CONFIG = {
+  free:  { ai: false, aiCallsPerMonth: 0,    usesOwnKey: false },
+  byok:  { ai: true,  aiCallsPerMonth: -1,   usesOwnKey: true  }, // unlimited
+  basic: { ai: true,  aiCallsPerMonth: 500,  usesOwnKey: false },
+  pro:   { ai: true,  aiCallsPerMonth: 2000, usesOwnKey: false },
 };
 
 export class LicenseManager {
@@ -94,10 +95,20 @@ export class LicenseManager {
   /** Check if user has AI access */
   canUseAI(): boolean {
     const tier = this.getTier();
-    return TIER_FEATURES[tier].ai;
+    const config = TIER_CONFIG[tier];
+    if (!config.ai) return false;
+    // BYOK = unlimited
+    if (config.aiCallsPerMonth === -1) return true;
+    // Basic/Pro = check usage
+    return this.license.usageThisMonth.aiCalls < config.aiCallsPerMonth;
   }
 
-  /** Record an AI call (for analytics) */
+  /** Check if tier has AI feature at all */
+  hasAIFeature(): boolean {
+    return TIER_CONFIG[this.getTier()].ai;
+  }
+
+  /** Record an AI call */
   recordAICall(): void {
     this.license.usageThisMonth.aiCalls++;
     this.save();
@@ -149,16 +160,18 @@ export class LicenseManager {
     //   body: JSON.stringify({ email, licenseKey }),
     // });
 
-    // For now: accept any key starting with "HELM-PRO-" or "HELM-TEAM-"
-    if (licenseKey.startsWith('HELM-PRO-')) {
-      const expiresAt = new Date();
-      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-      return { valid: true, tier: 'pro', expiresAt: expiresAt.toISOString() };
+    // For now: accept keys by prefix. Backend will validate for real.
+    const expiresAt = new Date();
+    expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+
+    if (licenseKey.startsWith('HELM-BYOK-')) {
+      return { valid: true, tier: 'byok', expiresAt: expiresAt.toISOString() };
     }
-    if (licenseKey.startsWith('HELM-TEAM-')) {
-      const expiresAt = new Date();
-      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-      return { valid: true, tier: 'team', expiresAt: expiresAt.toISOString() };
+    if (licenseKey.startsWith('HELM-BASIC-')) {
+      return { valid: true, tier: 'basic', expiresAt: expiresAt.toISOString() };
+    }
+    if (licenseKey.startsWith('HELM-PRO-')) {
+      return { valid: true, tier: 'pro', expiresAt: expiresAt.toISOString() };
     }
 
     return { valid: false, tier: 'free', expiresAt: '', error: 'Invalid license key' };
@@ -169,13 +182,18 @@ export class LicenseManager {
     tier: UserTier;
     aiEnabled: boolean;
     aiCallsUsed: number;
+    aiCallsLimit: number; // -1 = unlimited
+    usesOwnKey: boolean;
     resetDate: string;
   } {
     const tier = this.getTier();
+    const config = TIER_CONFIG[tier];
     return {
       tier,
-      aiEnabled: TIER_FEATURES[tier].ai,
+      aiEnabled: config.ai,
       aiCallsUsed: this.license.usageThisMonth.aiCalls,
+      aiCallsLimit: config.aiCallsPerMonth,
+      usesOwnKey: config.usesOwnKey,
       resetDate: this.license.usageThisMonth.resetDate,
     };
   }

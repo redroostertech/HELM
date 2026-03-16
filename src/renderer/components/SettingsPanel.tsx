@@ -90,18 +90,42 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
             <>
               <div className="setting-row">
                 <label>Current Plan</label>
-                <span className="plan-badge">{usage.tier.toUpperCase()}</span>
+                <span className="plan-badge">{usage.tier === 'byok' ? 'BYOK' : usage.tier.toUpperCase()}</span>
               </div>
               {usage.aiEnabled ? (
-                <div className="setting-row">
-                  <label>AI Features</label>
-                  <span className="key-status key-status-active" style={{ margin: 0, padding: '4px 10px' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                    Enabled
-                  </span>
-                </div>
+                <>
+                  <div className="setting-row">
+                    <label>AI Features</label>
+                    <span className="key-status key-status-active" style={{ margin: 0, padding: '4px 10px' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      Enabled
+                    </span>
+                  </div>
+                  {usage.aiCallsLimit > 0 && (
+                    <>
+                      <div className="setting-row">
+                        <label>Usage</label>
+                        <span className="settings-info-text">
+                          {usage.aiCallsUsed} / {usage.aiCallsLimit} requests this month
+                        </span>
+                      </div>
+                      <div className="usage-bar-container">
+                        <div
+                          className="usage-bar"
+                          style={{ width: `${Math.min(100, (usage.aiCallsUsed / usage.aiCallsLimit) * 100)}%` }}
+                        />
+                      </div>
+                    </>
+                  )}
+                  {usage.usesOwnKey && (
+                    <div className="setting-row">
+                      <label>Requests</label>
+                      <span className="settings-info-text">Unlimited (own key)</span>
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <div className="setting-row">
@@ -109,7 +133,7 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                     <span className="settings-info-text">Locked</span>
                   </div>
                   <p className="settings-hint">
-                    Upgrade to Pro ($12/mo) to unlock AI chat, command explanations, and suggestions.
+                    Unlock AI chat, explanations, and suggestions with a paid plan.
                   </p>
                 </>
               )}
@@ -121,7 +145,7 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
         <section className="settings-section">
           <h3>Bring Your Own Key</h3>
           <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
-            Pro subscribers can optionally use their own API key. Otherwise HELM provides the AI through our infrastructure.
+            BYOK plan ($2.99/mo): use your own OpenAI or Anthropic key for unlimited AI requests.
           </p>
 
           <div className="setting-row">
