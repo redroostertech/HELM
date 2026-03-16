@@ -62,8 +62,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   licenseActivate: (email: string, licenseKey: string) =>
     ipcRenderer.invoke('license:activate', email, licenseKey),
   licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
-  localAIStatus: () => ipcRenderer.invoke('localai:status'),
-
   // Database
   dbGetCommands: (sessionId?: number) =>
     ipcRenderer.invoke('db:getCommands', sessionId),
@@ -119,8 +117,6 @@ export interface ElectronAPI {
   licenseGetUsage: () => Promise<any>;
   licenseActivate: (email: string, licenseKey: string) => Promise<{ success: boolean; error?: string }>;
   licenseDeactivate: () => Promise<boolean>;
-  localAIStatus: () => Promise<{ available: boolean; hasModel: boolean; modelSizeMB: number; serverRunning: boolean }>;
-
   fsListDirs: (inputPath: string) => Promise<string[]>;
 
   settingsLoad: () => Promise<any>;

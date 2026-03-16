@@ -11,8 +11,7 @@ export interface License {
   expiresAt: string | null; // ISO date
   activatedAt: string | null;
   usageThisMonth: {
-    cloudApiCalls: number;
-    localInferenceCalls: number;
+    aiCalls: number;
     resetDate: string; // ISO date of next reset
   };
 }
@@ -20,18 +19,15 @@ export interface License {
 const LICENSE_PATH = path.join(os.homedir(), '.helm-license.json');
 
 const FREE_LIMITS = {
-  cloudApiCallsPerMonth: 0,    // Free users: local only
-  localInferenceCalls: -1,     // Unlimited
+  aiCallsPerMonth: 50,          // Free users: 50 calls/month
 };
 
 const PRO_LIMITS = {
-  cloudApiCallsPerMonth: 1000,  // 1000 cloud API calls/month
-  localInferenceCalls: -1,      // Unlimited
+  aiCallsPerMonth: 2000,        // Pro: 2000 calls/month
 };
 
 const TEAM_LIMITS = {
-  cloudApiCallsPerMonth: 5000,
-  localInferenceCalls: -1,
+  aiCallsPerMonth: 10000,       // Team: 10000 calls/month
 };
 
 export class LicenseManager {
@@ -67,12 +63,10 @@ export class LicenseManager {
   }
 
   private freshUsage() {
-    // Reset on the 1st of next month
     const now = new Date();
     const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     return {
-      cloudApiCalls: 0,
-      localInferenceCalls: 0,
+      aiCalls: 0,
       resetDate: nextMonth.toISOString(),
     };
   }
@@ -99,34 +93,29 @@ export class LicenseManager {
     return this.license.tier;
   }
 
-  /** Check if user can make a cloud API call */
-  canUseCloudAPI(): boolean {
+  /** Check if user can make an AI call */
+  canMakeAICall(): boolean {
     const tier = this.getTier();
-    if (tier === 'free') return false;
-
-    const limits = tier === 'team' ? TEAM_LIMITS : PRO_LIMITS;
-    return this.license.usageThisMonth.cloudApiCalls < limits.cloudApiCallsPerMonth;
+    const limits = tier === 'team' ? TEAM_LIMITS : tier === 'pro' ? PRO_LIMITS : FREE_LIMITS;
+    return this.license.usageThisMonth.aiCalls < limits.aiCallsPerMonth;
   }
 
-  /** Get remaining cloud API calls */
-  getRemainingCloudCalls(): number {
+  /** Get remaining AI calls */
+  getRemainingCalls(): number {
     const tier = this.getTier();
-    if (tier === 'free') return 0;
-
-    const limits = tier === 'team' ? TEAM_LIMITS : PRO_LIMITS;
-    return Math.max(0, limits.cloudApiCallsPerMonth - this.license.usageThisMonth.cloudApiCalls);
+    const limits = tier === 'team' ? TEAM_LIMITS : tier === 'pro' ? PRO_LIMITS : FREE_LIMITS;
+    return Math.max(0, limits.aiCallsPerMonth - this.license.usageThisMonth.aiCalls);
   }
 
-  /** Record a cloud API call */
-  recordCloudAPICall(): void {
-    this.license.usageThisMonth.cloudApiCalls++;
+  /** Record an AI call */
+  recordAICall(): void {
+    this.license.usageThisMonth.aiCalls++;
     this.save();
   }
 
-  /** Record a local inference call */
-  recordLocalCall(): void {
-    this.license.usageThisMonth.localInferenceCalls++;
-    this.save();
+  /** Check if user has their own API key (bypass HELM usage limits) */
+  hasOwnKey(settings: any): boolean {
+    return !!(settings?.openaiApiKey || settings?.anthropicApiKey);
   }
 
   /** Activate a license key (would validate against backend) */
@@ -193,20 +182,18 @@ export class LicenseManager {
   /** Get usage summary for display */
   getUsageSummary(): {
     tier: UserTier;
-    cloudCallsUsed: number;
-    cloudCallsLimit: number;
-    cloudCallsRemaining: number;
-    localCallsUsed: number;
+    aiCallsUsed: number;
+    aiCallsLimit: number;
+    aiCallsRemaining: number;
     resetDate: string;
   } {
     const tier = this.getTier();
     const limits = tier === 'team' ? TEAM_LIMITS : tier === 'pro' ? PRO_LIMITS : FREE_LIMITS;
     return {
       tier,
-      cloudCallsUsed: this.license.usageThisMonth.cloudApiCalls,
-      cloudCallsLimit: limits.cloudApiCallsPerMonth,
-      cloudCallsRemaining: this.getRemainingCloudCalls(),
-      localCallsUsed: this.license.usageThisMonth.localInferenceCalls,
+      aiCallsUsed: this.license.usageThisMonth.aiCalls,
+      aiCallsLimit: limits.aiCallsPerMonth,
+      aiCallsRemaining: this.getRemainingCalls(),
       resetDate: this.license.usageThisMonth.resetDate,
     };
   }

@@ -29,47 +29,41 @@ import { DatabaseManager } from './database';
 import { AIService } from './ai-service';
 import { OpenAIService } from './openai-service';
 import { AnthropicService } from './anthropic-service';
-import { LlamaCppService } from './llamacpp-service';
 import { LicenseManager } from './licensing';
+
+// Bundled API key — proxied through RedRooster's account
+const HELM_OPENAI_KEY = process.env.HELM_OPENAI_KEY || '';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyManager: PTYManager | null = null;
 let db: DatabaseManager | null = null;
 let aiService: AIService | null = null;
-let localAIService: LlamaCppService | null = null;
 let licenseManager: LicenseManager | null = null;
 
 function createAIService(settings?: any): AIService {
   const s = settings || loadSettings();
   const tier = licenseManager?.getTier() || 'free';
 
-  // Local model for free users or when explicitly selected
-  if (s.aiProvider === 'local' || (tier === 'free' && !s.openaiApiKey && !s.anthropicApiKey)) {
-    if (localAIService && localAIService.hasModel()) {
-      console.log('🦙 Using local AI (llama.cpp)');
-      return localAIService;
-    }
-  }
-
-  // Cloud providers for pro/team users or when API key is provided
+  // If user has their own API key, use it directly
   if (s.aiProvider === 'anthropic' && s.anthropicApiKey) {
-    console.log('🧠 Using Anthropic (Claude) API');
+    console.log('🧠 Using Anthropic (Claude) API — user key');
     return new AnthropicService(s.anthropicApiKey, s.anthropicModel);
   }
 
-  if (s.openaiApiKey) {
-    console.log('🧠 Using OpenAI API');
+  if (s.aiProvider === 'openai' && s.openaiApiKey) {
+    console.log('🧠 Using OpenAI API — user key');
     return new OpenAIService(s.openaiApiKey, s.openaiModel);
   }
 
-  // Fallback to local if available
-  if (localAIService && localAIService.hasModel()) {
-    console.log('🦙 Falling back to local AI (no API keys configured)');
-    return localAIService;
+  // Otherwise use HELM's bundled key (usage tracked against their license)
+  const key = HELM_OPENAI_KEY || s.openaiApiKey;
+  if (key) {
+    console.log(`🧠 Using OpenAI API — HELM ${tier} tier`);
+    return new OpenAIService(key, 'gpt-4o-mini');
   }
 
-  console.log('🧠 Using OpenAI API (no key - will error on use)');
-  return new OpenAIService(s.openaiApiKey, s.openaiModel);
+  console.log('🧠 No API key configured');
+  return new OpenAIService('', 'gpt-4o-mini');
 }
 
 function createWindow() {
@@ -100,18 +94,6 @@ function createWindow() {
   db = new DatabaseManager();
   ptyManager = new PTYManager(db);
   licenseManager = new LicenseManager();
-
-  // Initialize local AI (non-blocking)
-  localAIService = new LlamaCppService();
-  if (localAIService.isAvailable() && localAIService.hasModel()) {
-    console.log(`🦙 Local AI available: ${localAIService.getModelSizeMB()} MB model`);
-    localAIService.startServer().catch(err => {
-      console.warn('🦙 Local AI failed to start:', err.message);
-    });
-  } else {
-    console.log('🦙 Local AI not available (missing server or model)');
-  }
-
   aiService = createAIService();
 
   // Set up IPC handlers
@@ -225,19 +207,48 @@ function setupIPCHandlers() {
   });
 
   // AI handlers
+  // AI handlers with usage tracking
+  const checkUsage = () => {
+    if (!licenseManager) return;
+    const settings = loadSettings();
+    // If user has their own key, don't enforce HELM limits
+    if (licenseManager.hasOwnKey(settings)) return;
+    // Otherwise check against HELM's bundled key limits
+    if (!licenseManager.canMakeAICall()) {
+      throw new Error('Monthly AI request limit reached. Upgrade to Pro for more, or add your own API key in Settings.');
+    }
+  };
+
+  const trackUsage = () => {
+    if (!licenseManager) return;
+    const settings = loadSettings();
+    if (!licenseManager.hasOwnKey(settings)) {
+      licenseManager.recordAICall();
+    }
+  };
+
   ipcMain.handle('ai:ask', async (_, question: string, context?: string) => {
     if (!aiService) throw new Error('AI service not initialized');
-    return aiService.ask(question, context);
+    checkUsage();
+    const result = await aiService.ask(question, context);
+    trackUsage();
+    return result;
   });
 
   ipcMain.handle('ai:explain', async (_, command: string) => {
     if (!aiService) throw new Error('AI service not initialized');
-    return aiService.explainCommand(command);
+    checkUsage();
+    const result = await aiService.explainCommand(command);
+    trackUsage();
+    return result;
   });
 
   ipcMain.handle('ai:suggest', async (_, intent: string, workingDir: string) => {
     if (!aiService) throw new Error('AI service not initialized');
-    return aiService.suggestCommand(intent, workingDir);
+    checkUsage();
+    const result = await aiService.suggestCommand(intent, workingDir);
+    trackUsage();
+    return result;
   });
 
   // Keep old IPC names working for now (aliases)
@@ -377,15 +388,6 @@ function setupIPCHandlers() {
     return true;
   });
 
-  // Local AI status
-  ipcMain.handle('localai:status', async () => {
-    return {
-      available: localAIService?.isAvailable() || false,
-      hasModel: localAIService?.hasModel() || false,
-      modelSizeMB: localAIService?.getModelSizeMB() || 0,
-      serverRunning: localAIService?.provider === 'local',
-    };
-  });
 }
 
 app.whenReady().then(createWindow);
@@ -404,6 +406,5 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   ptyManager?.killAll();
-  localAIService?.stopServer();
   db?.close();
 });
