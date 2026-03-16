@@ -109,7 +109,14 @@ function loadConversations(): Conversation[] {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (parsed.length > 0) {
-        return parsed.map((c: any) => ({ ...c, createdAt: new Date(c.createdAt) }));
+        // Deduplicate by id
+        const seen = new Set<string>();
+        const deduped = parsed.filter((c: any) => {
+          if (seen.has(c.id)) return false;
+          seen.add(c.id);
+          return true;
+        });
+        return deduped.map((c: any) => ({ ...c, createdAt: new Date(c.createdAt) }));
       }
     }
   } catch {}
@@ -117,7 +124,14 @@ function loadConversations(): Conversation[] {
 }
 
 function saveConversations(convs: Conversation[]) {
-  localStorage.setItem('helm-chats', JSON.stringify(convs));
+  // Deduplicate before saving
+  const seen = new Set<string>();
+  const deduped = convs.filter(c => {
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
+  localStorage.setItem('helm-chats', JSON.stringify(deduped));
 }
 
 export default function ChatPane({ isOpen, activeTabId, theme, isPro = false, onUpgrade }: ChatPaneProps) {
