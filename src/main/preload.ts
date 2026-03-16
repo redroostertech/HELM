@@ -56,6 +56,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   settingsLoad: () => ipcRenderer.invoke('settings:load'),
   settingsSave: (settings: any) => ipcRenderer.invoke('settings:save', settings),
 
+  // Licensing
+  licenseGet: () => ipcRenderer.invoke('license:get'),
+  licenseGetUsage: () => ipcRenderer.invoke('license:getUsage'),
+  licenseActivate: (email: string, licenseKey: string) =>
+    ipcRenderer.invoke('license:activate', email, licenseKey),
+  licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
+  localAIStatus: () => ipcRenderer.invoke('localai:status'),
+
   // Database
   dbGetCommands: (sessionId?: number) =>
     ipcRenderer.invoke('db:getCommands', sessionId),
@@ -106,6 +114,12 @@ export interface ElectronAPI {
   claudeAsk: (question: string, context?: string) => Promise<string>;
   claudeExplain: (command: string) => Promise<any>;
   claudeSuggest: (intent: string, workingDir: string) => Promise<any>;
+
+  licenseGet: () => Promise<any>;
+  licenseGetUsage: () => Promise<any>;
+  licenseActivate: (email: string, licenseKey: string) => Promise<{ success: boolean; error?: string }>;
+  licenseDeactivate: () => Promise<boolean>;
+  localAIStatus: () => Promise<{ available: boolean; hasModel: boolean; modelSizeMB: number; serverRunning: boolean }>;
 
   fsListDirs: (inputPath: string) => Promise<string[]>;
 

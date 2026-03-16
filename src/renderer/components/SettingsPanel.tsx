@@ -80,6 +80,15 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
             <label>Provider</label>
             <div className="toggle-group">
               <button
+                className={settings.aiProvider === 'local' ? 'active' : ''}
+                onClick={() => {
+                  handleChange('aiProvider', 'local');
+                  setShowApiKey(false);
+                }}
+              >
+                Local
+              </button>
+              <button
                 className={settings.aiProvider === 'openai' ? 'active' : ''}
                 onClick={() => {
                   handleChange('aiProvider', 'openai');
@@ -102,6 +111,23 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
         </section>
 
         {/* Show only the selected provider's settings */}
+        {settings.aiProvider === 'local' && (
+          <section className="settings-section">
+            <h3>Local AI (llama.cpp)</h3>
+            <div className="setting-row">
+              <label>Model</label>
+              <span className="settings-info-text">Qwen 2.5 Coder 3B</span>
+            </div>
+            <div className="setting-row">
+              <label>Status</label>
+              <span className="settings-info-text">Runs on-device, no API key needed</span>
+            </div>
+            <p className="settings-hint">
+              Local AI runs entirely on your machine. No data is sent to external servers. Free and unlimited.
+            </p>
+          </section>
+        )}
+
         {settings.aiProvider === 'openai' && (
           <section className="settings-section">
             <h3>OpenAI Configuration</h3>

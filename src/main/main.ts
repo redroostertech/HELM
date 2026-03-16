@@ -29,21 +29,46 @@ import { DatabaseManager } from './database';
 import { AIService } from './ai-service';
 import { OpenAIService } from './openai-service';
 import { AnthropicService } from './anthropic-service';
+import { LlamaCppService } from './llamacpp-service';
+import { LicenseManager } from './licensing';
 
 let mainWindow: BrowserWindow | null = null;
 let ptyManager: PTYManager | null = null;
 let db: DatabaseManager | null = null;
 let aiService: AIService | null = null;
+let localAIService: LlamaCppService | null = null;
+let licenseManager: LicenseManager | null = null;
 
 function createAIService(settings?: any): AIService {
   const s = settings || loadSettings();
+  const tier = licenseManager?.getTier() || 'free';
 
+  // Local model for free users or when explicitly selected
+  if (s.aiProvider === 'local' || (tier === 'free' && !s.openaiApiKey && !s.anthropicApiKey)) {
+    if (localAIService && localAIService.hasModel()) {
+      console.log('🦙 Using local AI (llama.cpp)');
+      return localAIService;
+    }
+  }
+
+  // Cloud providers for pro/team users or when API key is provided
   if (s.aiProvider === 'anthropic' && s.anthropicApiKey) {
     console.log('🧠 Using Anthropic (Claude) API');
     return new AnthropicService(s.anthropicApiKey, s.anthropicModel);
   }
 
-  console.log('🧠 Using OpenAI API');
+  if (s.openaiApiKey) {
+    console.log('🧠 Using OpenAI API');
+    return new OpenAIService(s.openaiApiKey, s.openaiModel);
+  }
+
+  // Fallback to local if available
+  if (localAIService && localAIService.hasModel()) {
+    console.log('🦙 Falling back to local AI (no API keys configured)');
+    return localAIService;
+  }
+
+  console.log('🧠 Using OpenAI API (no key - will error on use)');
   return new OpenAIService(s.openaiApiKey, s.openaiModel);
 }
 
@@ -74,6 +99,19 @@ function createWindow() {
   // Initialize services
   db = new DatabaseManager();
   ptyManager = new PTYManager(db);
+  licenseManager = new LicenseManager();
+
+  // Initialize local AI (non-blocking)
+  localAIService = new LlamaCppService();
+  if (localAIService.isAvailable() && localAIService.hasModel()) {
+    console.log(`🦙 Local AI available: ${localAIService.getModelSizeMB()} MB model`);
+    localAIService.startServer().catch(err => {
+      console.warn('🦙 Local AI failed to start:', err.message);
+    });
+  } else {
+    console.log('🦙 Local AI not available (missing server or model)');
+  }
+
   aiService = createAIService();
 
   // Set up IPC handlers
@@ -310,9 +348,43 @@ function setupIPCHandlers() {
 
   ipcMain.handle('settings:save', async (_, settings: any) => {
     saveSettings(settings);
-    // Recreate AI service with new settings
     aiService = createAIService(settings);
     return true;
+  });
+
+  // Licensing handlers
+  ipcMain.handle('license:get', async () => {
+    return licenseManager?.getLicense() || null;
+  });
+
+  ipcMain.handle('license:getUsage', async () => {
+    return licenseManager?.getUsageSummary() || null;
+  });
+
+  ipcMain.handle('license:activate', async (_, email: string, licenseKey: string) => {
+    if (!licenseManager) return { success: false, error: 'License manager not initialized' };
+    const result = await licenseManager.activateLicense(email, licenseKey);
+    if (result.success) {
+      // Recreate AI service to reflect new tier
+      aiService = createAIService();
+    }
+    return result;
+  });
+
+  ipcMain.handle('license:deactivate', async () => {
+    licenseManager?.deactivateLicense();
+    aiService = createAIService();
+    return true;
+  });
+
+  // Local AI status
+  ipcMain.handle('localai:status', async () => {
+    return {
+      available: localAIService?.isAvailable() || false,
+      hasModel: localAIService?.hasModel() || false,
+      modelSizeMB: localAIService?.getModelSizeMB() || 0,
+      serverRunning: localAIService?.provider === 'local',
+    };
   });
 }
 
@@ -332,5 +404,6 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   ptyManager?.killAll();
+  localAIService?.stopServer();
   db?.close();
 });

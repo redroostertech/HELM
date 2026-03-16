@@ -339,6 +339,22 @@
   background: #1177bb;
 }
 
+.settings-info-text {
+  font-size: 13px;
+  color: #999;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: #666;
+  line-height: 1.5;
+  margin-top: 8px;
+}
+
+[data-theme="light"] .settings-hint {
+  color: #999;
+}
+
 .danger-btn {
   background: transparent;
   color: #e55;
