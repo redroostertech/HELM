@@ -21,10 +21,18 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
   const [settings, setSettings] = useState<Settings>(currentSettings);
   const [showApiKey, setShowApiKey] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [usage, setUsage] = useState<any>(null);
+  const [byoExpanded, setByoExpanded] = useState(false);
 
   useEffect(() => {
     setSettings(currentSettings);
   }, [currentSettings]);
+
+  useEffect(() => {
+    if (isOpen) {
+      window.electronAPI.licenseGetUsage().then(setUsage).catch(() => {});
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -38,6 +46,8 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  const hasOwnKey = !!(settings.openaiApiKey || settings.anthropicApiKey);
 
   return (
     <div className="settings-overlay">
@@ -73,9 +83,49 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
           </div>
         </section>
 
-        {/* AI Provider */}
+        {/* Usage & Plan */}
         <section className="settings-section">
-          <h3>AI Provider</h3>
+          <h3>Plan & Usage</h3>
+          {usage && (
+            <>
+              <div className="setting-row">
+                <label>Current Plan</label>
+                <span className="plan-badge">{usage.tier.toUpperCase()}</span>
+              </div>
+              <div className="setting-row">
+                <label>AI Requests</label>
+                <span className="settings-info-text">
+                  {hasOwnKey ? (
+                    'Unlimited (using your own key)'
+                  ) : (
+                    `${usage.aiCallsUsed} / ${usage.aiCallsLimit} this month`
+                  )}
+                </span>
+              </div>
+              {!hasOwnKey && (
+                <div className="usage-bar-container">
+                  <div
+                    className="usage-bar"
+                    style={{ width: `${Math.min(100, (usage.aiCallsUsed / usage.aiCallsLimit) * 100)}%` }}
+                  />
+                </div>
+              )}
+              {usage.tier === 'free' && !hasOwnKey && (
+                <p className="settings-hint">
+                  Upgrade to Pro for 2,000 requests/month, or add your own API key for unlimited use.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* Bring Your Own Key */}
+        <section className="settings-section">
+          <h3>Bring Your Own Key</h3>
+          <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
+            Add your own API key for unlimited requests — no HELM usage limits apply.
+          </p>
+
           <div className="setting-row">
             <label>Provider</label>
             <div className="toggle-group">
@@ -84,6 +134,7 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                 onClick={() => {
                   handleChange('aiProvider', 'openai');
                   setShowApiKey(false);
+                  setByoExpanded(true);
                 }}
               >
                 OpenAI
@@ -93,82 +144,98 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                 onClick={() => {
                   handleChange('aiProvider', 'anthropic');
                   setShowApiKey(false);
+                  setByoExpanded(true);
                 }}
               >
                 Anthropic
               </button>
             </div>
           </div>
+
+          {/* OpenAI config */}
+          {settings.aiProvider === 'openai' && (
+            <>
+              <div className="setting-row">
+                <label>API Key</label>
+                <div className="key-input">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={settings.openaiApiKey}
+                    onChange={e => handleChange('openaiApiKey', e.target.value)}
+                    placeholder="sk-..."
+                  />
+                  <button
+                    className="toggle-visibility"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                  >
+                    {showApiKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+              <div className="setting-row">
+                <label>Model</label>
+                <select
+                  value={settings.openaiModel}
+                  onChange={e => handleChange('openaiModel', e.target.value)}
+                >
+                  <option value="gpt-4o">GPT-4o</option>
+                  <option value="gpt-4o-mini">GPT-4o Mini</option>
+                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                </select>
+              </div>
+              {settings.openaiApiKey && (
+                <div className="key-status key-status-active">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Key configured — unlimited requests
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Anthropic config */}
+          {settings.aiProvider === 'anthropic' && (
+            <>
+              <div className="setting-row">
+                <label>API Key</label>
+                <div className="key-input">
+                  <input
+                    type={showApiKey ? 'text' : 'password'}
+                    value={settings.anthropicApiKey}
+                    onChange={e => handleChange('anthropicApiKey', e.target.value)}
+                    placeholder="sk-ant-..."
+                  />
+                  <button
+                    className="toggle-visibility"
+                    onClick={() => setShowApiKey(!showApiKey)}
+                  >
+                    {showApiKey ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+              <div className="setting-row">
+                <label>Model</label>
+                <select
+                  value={settings.anthropicModel}
+                  onChange={e => handleChange('anthropicModel', e.target.value)}
+                >
+                  <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                  <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                  <option value="claude-opus-4-20250514">Claude Opus 4</option>
+                </select>
+              </div>
+              {settings.anthropicApiKey && (
+                <div className="key-status key-status-active">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Key configured — unlimited requests
+                </div>
+              )}
+            </>
+          )}
         </section>
-
-        {/* Show only the selected provider's settings */}
-        {settings.aiProvider === 'openai' && (
-          <section className="settings-section">
-            <h3>OpenAI Configuration</h3>
-            <div className="setting-row">
-              <label>API Key</label>
-              <div className="key-input">
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={settings.openaiApiKey}
-                  onChange={e => handleChange('openaiApiKey', e.target.value)}
-                  placeholder="sk-..."
-                />
-                <button
-                  className="toggle-visibility"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                >
-                  {showApiKey ? 'Hide' : 'Show'}
-                </button>
-              </div>
-            </div>
-            <div className="setting-row">
-              <label>Model</label>
-              <select
-                value={settings.openaiModel}
-                onChange={e => handleChange('openaiModel', e.target.value)}
-              >
-                <option value="gpt-4o">GPT-4o</option>
-                <option value="gpt-4o-mini">GPT-4o Mini</option>
-                <option value="gpt-4-turbo">GPT-4 Turbo</option>
-              </select>
-            </div>
-          </section>
-        )}
-
-        {settings.aiProvider === 'anthropic' && (
-          <section className="settings-section">
-            <h3>Anthropic Configuration</h3>
-            <div className="setting-row">
-              <label>API Key</label>
-              <div className="key-input">
-                <input
-                  type={showApiKey ? 'text' : 'password'}
-                  value={settings.anthropicApiKey}
-                  onChange={e => handleChange('anthropicApiKey', e.target.value)}
-                  placeholder="sk-ant-..."
-                />
-                <button
-                  className="toggle-visibility"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                >
-                  {showApiKey ? 'Hide' : 'Show'}
-                </button>
-              </div>
-            </div>
-            <div className="setting-row">
-              <label>Model</label>
-              <select
-                value={settings.anthropicModel}
-                onChange={e => handleChange('anthropicModel', e.target.value)}
-              >
-                <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-                <option value="claude-opus-4-20250514">Claude Opus 4</option>
-              </select>
-            </div>
-          </section>
-        )}
 
         {/* Data */}
         <section className="settings-section">
