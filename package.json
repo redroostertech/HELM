@@ -17,7 +17,7 @@
     "package:win": "electron-builder --win",
     "package:linux": "electron-builder --linux",
     "package:all": "electron-builder --mac --win --linux",
-    "release": "./scripts/build-release.sh",
+    "release": "./scripts/build-client.sh",
     "start": "electron .",
     "setup:db": "./scripts/setup-database.sh",
     "postinstall": "electron-rebuild -f -w node-pty"
