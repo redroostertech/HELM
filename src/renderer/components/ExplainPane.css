@@ -1,3 +1,98 @@
+.explain-pane .pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Explain history dropdown */
+.explain-history-wrapper {
+  position: relative;
+}
+
+.explain-history-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.explain-history-btn:hover {
+  color: #d4d4d4;
+  background: #3c3c3c;
+}
+
+.explain-history-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 100;
+  width: 260px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  margin-top: 4px;
+  padding: 4px;
+}
+
+[data-theme="light"] .explain-history-dropdown {
+  background: #fff;
+  border-color: #ddd;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.explain-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #d4d4d4;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.explain-history-item code {
+  font-family: 'Menlo', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.explain-history-item:hover {
+  background: #2d2d30;
+}
+
+.explain-history-item.active {
+  background: #0e639c33;
+  color: #4fc3f7;
+}
+
+[data-theme="light"] .explain-history-item {
+  color: #333;
+}
+
+[data-theme="light"] .explain-history-item:hover {
+  background: #f0f0f0;
+}
+
+.explain-history-empty {
+  padding: 12px;
+  text-align: center;
+  color: #666;
+  font-size: 12px;
+}
+
 .explain-pane .loading {
   display: flex;
   flex-direction: column;

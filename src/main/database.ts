@@ -140,6 +140,13 @@ export class DatabaseManager {
     );
   }
 
+  /** Close all sessions that were left open (e.g. from a crash or unclean exit) */
+  async closeOrphanedSessions(): Promise<void> {
+    await this.pool.query(
+      'UPDATE sessions SET ended_at = NOW() WHERE ended_at IS NULL'
+    );
+  }
+
   async saveCommand(
     sessionId: number,
     input: string,
@@ -320,6 +327,14 @@ export class DatabaseManager {
       failureModes: row.failure_modes,
       undoGuidance: row.undo_guidance,
     };
+  }
+
+  async deleteSession(sessionId: number): Promise<void> {
+    // Delete related data first (foreign key constraints)
+    await this.pool.query('DELETE FROM explanations WHERE command_id IN (SELECT id FROM commands WHERE session_id = $1)', [sessionId]);
+    await this.pool.query('DELETE FROM bookmarks WHERE command_id IN (SELECT id FROM commands WHERE session_id = $1)', [sessionId]);
+    await this.pool.query('DELETE FROM commands WHERE session_id = $1', [sessionId]);
+    await this.pool.query('DELETE FROM sessions WHERE id = $1', [sessionId]);
   }
 
   async clearHistory(): Promise<void> {

@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './ExplainPane.css';
 
@@ -15,6 +16,7 @@ interface ExplainPaneProps {
   selectedCommand: any;
   isPro?: boolean;
   onUpgrade?: () => void;
+  onSelectExplained?: (commandInput: string) => void;
 }
 
 function parseExplanation(exp: any): ExplanationData | null {
@@ -40,13 +42,68 @@ function parseExplanation(exp: any): ExplanationData | null {
   return exp;
 }
 
-export default function ExplainPane({ explanation: rawExplanation, isLoading, selectedCommand, isPro = false, onUpgrade }: ExplainPaneProps) {
+export default function ExplainPane({ explanation: rawExplanation, isLoading, selectedCommand, isPro = false, onUpgrade, onSelectExplained }: ExplainPaneProps) {
   const explanation = parseExplanation(rawExplanation);
+  const [showHistory, setShowHistory] = useState(false);
+  const [explainedCommands, setExplainedCommands] = useState<string[]>([]);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showHistory) {
+      window.electronAPI.dbGetExplainedCommandInputs()
+        .then(setExplainedCommands)
+        .catch(() => {});
+    }
+  }, [showHistory]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowHistory(false);
+      }
+    };
+    if (showHistory) document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showHistory]);
 
   return (
     <div className="pane explain-pane">
       <div className="pane-header">
         <span>Explain</span>
+        {isPro && (
+          <div className="explain-history-wrapper" ref={dropdownRef}>
+            <button
+              className="explain-history-btn"
+              onClick={() => setShowHistory(!showHistory)}
+              title="Previously explained commands"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </button>
+            {showHistory && (
+              <div className="explain-history-dropdown">
+                {explainedCommands.length === 0 ? (
+                  <div className="explain-history-empty">No explanations yet</div>
+                ) : (
+                  explainedCommands.map((cmd, i) => (
+                    <button
+                      key={i}
+                      className={`explain-history-item ${selectedCommand?.input === cmd ? 'active' : ''}`}
+                      onClick={() => {
+                        onSelectExplained?.(cmd);
+                        setShowHistory(false);
+                      }}
+                    >
+                      <code>{cmd}</code>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="pane-content">

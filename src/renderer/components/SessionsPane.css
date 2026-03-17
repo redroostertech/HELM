@@ -160,9 +160,61 @@
   color: #333;
 }
 
+.sessions-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .sessions-card-duration {
   font-size: 11px;
   color: #888;
+}
+
+.sessions-delete-btn {
+  background: transparent;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.sessions-card:hover .sessions-delete-btn {
+  opacity: 1;
+}
+
+.sessions-delete-btn:hover {
+  color: #e55;
+  background: rgba(229, 85, 85, 0.1);
+}
+
+.sessions-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sessions-detail-delete-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sessions-detail-delete-btn:hover {
+  color: #e55;
+  background: rgba(229, 85, 85, 0.1);
 }
 
 .sessions-card-dir {

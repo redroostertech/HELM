@@ -326,6 +326,26 @@ function App() {
                   selectedCommand={selectedCommand}
                   isPro={isAuthenticated}
                   onUpgrade={() => setSettingsOpen(true)}
+                  onSelectExplained={async (commandInput) => {
+                    setSelectedCommand({ input: commandInput });
+                    setIsExplaining(true);
+                    try {
+                      const cached = await window.electronAPI.dbGetExplanation(commandInput);
+                      if (cached) {
+                        setExplanation(cached);
+                      } else {
+                        const exp = await window.electronAPI.aiExplain(commandInput);
+                        setExplanation(exp);
+                      }
+                    } catch {
+                      setExplanation({
+                        summary: 'Failed to get explanation.',
+                        breakdown: [], expectedOutcome: '', failureModes: [], undoGuidance: null,
+                      });
+                    } finally {
+                      setIsExplaining(false);
+                    }
+                  }}
                 />
               )}
             </div>

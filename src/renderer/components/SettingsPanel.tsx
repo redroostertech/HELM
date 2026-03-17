@@ -269,118 +269,152 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
         {/* Bring Your Own Key */}
         <section className="settings-section">
           <h3>Bring Your Own Key</h3>
-          <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
-            BYOK plan ($2.99/mo): use your own OpenAI or Anthropic key for unlimited AI requests.
-          </p>
+          {usage?.tier === 'byok' ? (
+            <>
+              <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
+                Configure your own OpenAI or Anthropic key for unlimited AI requests.
+              </p>
 
-          <div className="setting-row">
-            <label>Provider</label>
-            <div className="toggle-group">
+              <div className="setting-row">
+                <label>Provider</label>
+                <div className="toggle-group">
+                  <button
+                    className={settings.aiProvider === 'openai' ? 'active' : ''}
+                    onClick={() => {
+                      handleChange('aiProvider', 'openai');
+                      setShowApiKey(false);
+                    }}
+                  >
+                    OpenAI
+                  </button>
+                  <button
+                    className={settings.aiProvider === 'anthropic' ? 'active' : ''}
+                    onClick={() => {
+                      handleChange('aiProvider', 'anthropic');
+                      setShowApiKey(false);
+                    }}
+                  >
+                    Anthropic
+                  </button>
+                </div>
+              </div>
+
+              {/* OpenAI config */}
+              {settings.aiProvider === 'openai' && (
+                <>
+                  <div className="setting-row">
+                    <label>API Key</label>
+                    <div className="key-input">
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={settings.openaiApiKey}
+                        onChange={e => handleChange('openaiApiKey', e.target.value)}
+                        placeholder="sk-..."
+                      />
+                      <button
+                        className="toggle-visibility"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                      >
+                        {showApiKey ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="setting-row">
+                    <label>Model</label>
+                    <select
+                      value={settings.openaiModel}
+                      onChange={e => handleChange('openaiModel', e.target.value)}
+                    >
+                      <option value="gpt-4o">GPT-4o</option>
+                      <option value="gpt-4o-mini">GPT-4o Mini</option>
+                      <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                    </select>
+                  </div>
+                  {settings.openaiApiKey && (
+                    <div className="key-status key-status-active">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      Key configured — unlimited requests
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Anthropic config */}
+              {settings.aiProvider === 'anthropic' && (
+                <>
+                  <div className="setting-row">
+                    <label>API Key</label>
+                    <div className="key-input">
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={settings.anthropicApiKey}
+                        onChange={e => handleChange('anthropicApiKey', e.target.value)}
+                        placeholder="sk-ant-..."
+                      />
+                      <button
+                        className="toggle-visibility"
+                        onClick={() => setShowApiKey(!showApiKey)}
+                      >
+                        {showApiKey ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="setting-row">
+                    <label>Model</label>
+                    <select
+                      value={settings.anthropicModel}
+                      onChange={e => handleChange('anthropicModel', e.target.value)}
+                    >
+                      <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                      <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
+                      <option value="claude-opus-4-20250514">Claude Opus 4</option>
+                    </select>
+                  </div>
+                  {settings.anthropicApiKey && (
+                    <div className="key-status key-status-active">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                      Key configured — unlimited requests
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <div className="byok-promo">
+              <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
+                Use your own OpenAI or Anthropic API key for unlimited AI requests with no monthly cap.
+              </p>
+              <div className="byok-promo-features">
+                <div className="byok-promo-feature">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Unlimited AI requests
+                </div>
+                <div className="byok-promo-feature">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Choose OpenAI or Anthropic
+                </div>
+                <div className="byok-promo-feature">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Pick any model (GPT-4o, Claude, etc.)
+                </div>
+              </div>
               <button
-                className={settings.aiProvider === 'openai' ? 'active' : ''}
-                onClick={() => {
-                  handleChange('aiProvider', 'openai');
-                  setShowApiKey(false);
-                  setByoExpanded(true);
-                }}
+                className="byok-upgrade-btn"
+                onClick={() => window.electronAPI.authOpenPricing()}
               >
-                OpenAI
-              </button>
-              <button
-                className={settings.aiProvider === 'anthropic' ? 'active' : ''}
-                onClick={() => {
-                  handleChange('aiProvider', 'anthropic');
-                  setShowApiKey(false);
-                  setByoExpanded(true);
-                }}
-              >
-                Anthropic
+                Upgrade to BYOK — $2.99/mo
               </button>
             </div>
-          </div>
-
-          {/* OpenAI config */}
-          {settings.aiProvider === 'openai' && (
-            <>
-              <div className="setting-row">
-                <label>API Key</label>
-                <div className="key-input">
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    value={settings.openaiApiKey}
-                    onChange={e => handleChange('openaiApiKey', e.target.value)}
-                    placeholder="sk-..."
-                  />
-                  <button
-                    className="toggle-visibility"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                  >
-                    {showApiKey ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-              </div>
-              <div className="setting-row">
-                <label>Model</label>
-                <select
-                  value={settings.openaiModel}
-                  onChange={e => handleChange('openaiModel', e.target.value)}
-                >
-                  <option value="gpt-4o">GPT-4o</option>
-                  <option value="gpt-4o-mini">GPT-4o Mini</option>
-                  <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                </select>
-              </div>
-              {settings.openaiApiKey && (
-                <div className="key-status key-status-active">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  Key configured — unlimited requests
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Anthropic config */}
-          {settings.aiProvider === 'anthropic' && (
-            <>
-              <div className="setting-row">
-                <label>API Key</label>
-                <div className="key-input">
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    value={settings.anthropicApiKey}
-                    onChange={e => handleChange('anthropicApiKey', e.target.value)}
-                    placeholder="sk-ant-..."
-                  />
-                  <button
-                    className="toggle-visibility"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                  >
-                    {showApiKey ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-              </div>
-              <div className="setting-row">
-                <label>Model</label>
-                <select
-                  value={settings.anthropicModel}
-                  onChange={e => handleChange('anthropicModel', e.target.value)}
-                >
-                  <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-                  <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-                  <option value="claude-opus-4-20250514">Claude Opus 4</option>
-                </select>
-              </div>
-              {settings.anthropicApiKey && (
-                <div className="key-status key-status-active">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  Key configured — unlimited requests
-                </div>
-              )}
-            </>
           )}
         </section>
 

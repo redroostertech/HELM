@@ -607,3 +607,45 @@
   background: #e0e0e0;
   border-color: #999;
 }
+
+/* BYOK promo */
+.byok-promo-features {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.byok-promo-feature {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #aaa;
+}
+
+.byok-promo-feature svg {
+  color: #4ec9b0;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .byok-promo-feature {
+  color: #555;
+}
+
+.byok-upgrade-btn {
+  background: linear-gradient(135deg, #0e639c, #1177bb);
+  color: #fff;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+}
+
+.byok-upgrade-btn:hover {
+  background: linear-gradient(135deg, #1177bb, #1a8ad4);
+}

@@ -54,6 +54,18 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
     window.electronAPI.ptyWrite(activeTabId, cmd.input + '\r');
   };
 
+  const deleteSession = async (sessionId: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await window.electronAPI.dbDeleteSession(sessionId);
+      setSessions(prev => prev.filter(s => s.id !== sessionId));
+      if (activeSession?.id === sessionId) {
+        setActiveSession(null);
+        setSessionCommands([]);
+      }
+    } catch {}
+  };
+
   const copyCommand = async (cmd: any) => {
     await navigator.clipboard.writeText(cmd.input);
   };
@@ -106,13 +118,24 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
             </svg>
           </button>
           <span className="sessions-header-title">Session Detail</span>
-          <button
-            className="sessions-resume-btn"
-            onClick={() => resumeSession(activeSession)}
-            title="Resume — cd into this session's directory"
-          >
-            Resume
-          </button>
+          <div className="sessions-header-actions">
+            <button
+              className="sessions-detail-delete-btn"
+              onClick={(e) => deleteSession(activeSession.id, e)}
+              title="Delete session"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </button>
+            <button
+              className="sessions-resume-btn"
+              onClick={() => resumeSession(activeSession)}
+              title="Resume — cd into this session's directory"
+            >
+              Resume
+            </button>
+          </div>
         </div>
 
         <div className="session-info">
@@ -196,9 +219,20 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
                 <span className={`sessions-card-dot ${session.ended_at ? '' : 'active'}`} />
                 <span className="sessions-card-date">{formatDate(session.started_at)}</span>
               </div>
-              <span className="sessions-card-duration">
-                {formatDuration(session.started_at, session.ended_at)}
-              </span>
+              <div className="sessions-card-actions">
+                <span className="sessions-card-duration">
+                  {formatDuration(session.started_at, session.ended_at)}
+                </span>
+                <button
+                  className="sessions-delete-btn"
+                  onClick={(e) => deleteSession(session.id, e)}
+                  title="Delete session"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
             </div>
 
             <div className="sessions-card-dir">{session.working_dir}</div>

@@ -117,6 +117,32 @@ export class HelmAPI {
     });
   }
 
+  // --- AI Proxy ---
+
+  async aiAsk(token: string, question: string, context?: string): Promise<{ answer: string; usage?: any }> {
+    return this.request('/ai/ask', {
+      method: 'POST',
+      headers: this.authHeaders(token),
+      body: JSON.stringify({ question, context }),
+    });
+  }
+
+  async aiExplain(token: string, command: string): Promise<any> {
+    return this.request('/ai/explain', {
+      method: 'POST',
+      headers: this.authHeaders(token),
+      body: JSON.stringify({ command }),
+    });
+  }
+
+  async aiSuggest(token: string, intent: string, workingDir: string): Promise<any> {
+    return this.request('/ai/suggest', {
+      method: 'POST',
+      headers: this.authHeaders(token),
+      body: JSON.stringify({ intent, workingDir }),
+    });
+  }
+
   // --- Billing ---
 
   async createCheckout(token: string, tier: string): Promise<{ checkoutUrl: string }> {

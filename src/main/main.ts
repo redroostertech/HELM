@@ -35,10 +35,9 @@ import { DatabaseManager } from './database';
 import { AIService } from './ai-service';
 import { OpenAIService } from './openai-service';
 import { AnthropicService } from './anthropic-service';
+import { ProxyAIService } from './proxy-ai-service';
+import { HelmAPI } from './helm-api';
 import { LicenseManager } from './licensing';
-
-// Bundled API key — proxied through RedRooster's account
-const HELM_OPENAI_KEY = process.env.HELM_OPENAI_KEY || '';
 
 // Register custom protocol for deep linking (helm://)
 if (process.defaultApp) {
@@ -59,24 +58,25 @@ function createAIService(settings?: any): AIService {
   const s = settings || loadSettings();
   const tier = licenseManager?.getTier() || 'free';
 
-  // If user has their own API key, use it directly
+  // Priority 1: User has their own API key (BYOK) — call providers directly
   if (s.aiProvider === 'anthropic' && s.anthropicApiKey) {
-    console.log('🧠 Using Anthropic (Claude) API — user key');
+    console.log('🧠 Using Anthropic (Claude) API — user key (BYOK)');
     return new AnthropicService(s.anthropicApiKey, s.anthropicModel);
   }
 
   if (s.aiProvider === 'openai' && s.openaiApiKey) {
-    console.log('🧠 Using OpenAI API — user key');
+    console.log('🧠 Using OpenAI API — user key (BYOK)');
     return new OpenAIService(s.openaiApiKey, s.openaiModel);
   }
 
-  // Otherwise use HELM's bundled key (usage tracked against their license)
-  const key = HELM_OPENAI_KEY || s.openaiApiKey;
-  if (key) {
-    console.log(`🧠 Using OpenAI API — HELM ${tier} tier`);
-    return new OpenAIService(key, 'gpt-4o-mini');
+  // Priority 2: Authenticated user (Free/Basic/Pro) — proxy through backend
+  const token = licenseManager?.getToken();
+  if (token) {
+    console.log(`🧠 Using AI proxy — HELM ${tier} tier (server-side)`);
+    return new ProxyAIService(new HelmAPI(), token);
   }
 
+  // Priority 3: Not authenticated, no key — AI disabled
   console.log('🧠 No API key configured');
   return new OpenAIService('', 'gpt-4o-mini');
 }
@@ -125,6 +125,8 @@ function createWindow() {
 
   // Initialize services
   db = new DatabaseManager();
+  // Close any sessions left open from a previous run
+  db.closeOrphanedSessions().catch(() => {});
   ptyManager = new PTYManager(db);
   licenseManager = new LicenseManager();
   aiService = createAIService();
@@ -263,23 +265,29 @@ function setupIPCHandlers() {
     if (!licenseManager.canUseAI()) {
       const tier = licenseManager.getTier();
       if (tier === 'free') {
-        throw new Error('You\'ve used all 5 free explanations this month. Upgrade for more AI access.');
+        throw new Error('You\'ve used all 20 free AI requests this month. Upgrade for more AI access.');
       }
       throw new Error('Monthly AI request limit reached. Upgrade your plan for more requests.');
     }
   };
 
-  const trackUsage = () => {
+  const isUsingProxy = () => aiService instanceof ProxyAIService;
+
+  const trackUsage = (type: string) => {
     licenseManager?.recordAICall();
+    // Only report to backend separately for BYOK users (proxy already tracks on the server)
+    if (!isUsingProxy()) {
+      const s = loadSettings();
+      const model = s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel;
+      licenseManager?.recordUsageToBackend(type, model);
+    }
   };
 
   ipcMain.handle('ai:ask', async (_, question: string, context?: string) => {
     if (!aiService) throw new Error('AI service not initialized');
     checkAccess();
     const result = await aiService.ask(question, context);
-    trackUsage();
-    const s = loadSettings();
-    licenseManager?.recordUsageToBackend('chat', s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel);
+    trackUsage('chat');
     return result;
   });
 
@@ -287,9 +295,7 @@ function setupIPCHandlers() {
     if (!aiService) throw new Error('AI service not initialized');
     checkAccess();
     const result = await aiService.explainCommand(command);
-    trackUsage();
-    const s = loadSettings();
-    licenseManager?.recordUsageToBackend('explain', s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel);
+    trackUsage('explain');
     return result;
   });
 
@@ -297,9 +303,7 @@ function setupIPCHandlers() {
     if (!aiService) throw new Error('AI service not initialized');
     checkAccess();
     const result = await aiService.suggestCommand(intent, workingDir);
-    trackUsage();
-    const s = loadSettings();
-    licenseManager?.recordUsageToBackend('suggest', s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel);
+    trackUsage('suggest');
     return result;
   });
 
@@ -396,6 +400,12 @@ function setupIPCHandlers() {
   ipcMain.handle('db:getSessionCommands', async (_, sessionId: number) => {
     if (!db) throw new Error('Database not initialized');
     return db.getSessionCommands(sessionId);
+  });
+
+  ipcMain.handle('db:deleteSession', async (_, sessionId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    await db.deleteSession(sessionId);
+    return true;
   });
 
   ipcMain.handle('db:clearHistory', async () => {

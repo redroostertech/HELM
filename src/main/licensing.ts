@@ -28,7 +28,7 @@ export interface License {
 const LICENSE_PATH = path.join(os.homedir(), '.helm-license.json');
 
 const TIER_CONFIG = {
-  free:  { ai: true,  aiCallsPerMonth: 5,    usesOwnKey: false },
+  free:  { ai: true,  aiCallsPerMonth: 20,   usesOwnKey: false },
   byok:  { ai: true,  aiCallsPerMonth: -1,   usesOwnKey: true  }, // unlimited
   basic: { ai: true,  aiCallsPerMonth: 500,  usesOwnKey: false },
   pro:   { ai: true,  aiCallsPerMonth: 2000, usesOwnKey: false },
