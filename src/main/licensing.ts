@@ -128,7 +128,7 @@ export class LicenseManager {
   /** Activate a license key (would validate against backend) */
   async activateLicense(email: string, licenseKey: string): Promise<{ success: boolean; error?: string }> {
     // TODO: Validate against RedRooster backend
-    // POST to https://redroostertech.com/helm/api/activate
+    // POST to https://redroostertec.com/helm/api/activate
     // For now, validate format and accept
     try {
       const result = await this.validateWithBackend(email, licenseKey);

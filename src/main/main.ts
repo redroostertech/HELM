@@ -592,7 +592,7 @@ async function startAuthFlowInBrowser(mode: 'login' | 'register') {
       const callbackUrl = `http://127.0.0.1:${callbackPort}/auth/callback`;
 
       // Build the web URL with the localhost callback
-      const webBase = app.isPackaged ? 'https://redroostertech.com' : 'http://localhost:1234';
+      const webBase = app.isPackaged ? 'https://redroostertec.com' : 'http://localhost:1234';
       const page = mode === 'login' ? 'login' : 'register';
       const webUrl = `${webBase}/helm/${page}?callback=${encodeURIComponent(callbackUrl)}`;
 

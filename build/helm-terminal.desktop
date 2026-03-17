@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=HELM
+Comment=AI-powered terminal. Powered by LANA AI.
+Exec=AppRun
+Icon=helm-terminal
+Type=Application
+Categories=Development;TerminalEmulator;
+MimeType=x-scheme-handler/helm;
+StartupWMClass=HELM

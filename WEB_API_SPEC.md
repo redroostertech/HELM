@@ -105,7 +105,7 @@ RedRoosterTech-Web (Express/Node.js)
 
 ## API Endpoints
 
-Base URL: `https://redroostertech.com/helm/api`
+Base URL: `https://redroostertec.com/helm/api`
 
 ### Authentication
 
@@ -287,7 +287,7 @@ Record AI usage from the desktop app. Called after each AI request.
     "aiCallsLimit": 2000,
     "remaining": 0
   },
-  "upgradeUrl": "https://redroostertech.com/helm/pricing"
+  "upgradeUrl": "https://redroostertec.com/helm/pricing"
 }
 ```
 
@@ -427,7 +427,7 @@ customer.subscription.updated
 2. **Auth flow:** App calls `/auth/login`, receives JWT, stores in `~/.helm-license.json`.
 3. **On every launch:** App calls `/license/validate` to check tier and sync usage.
 4. **On AI call:** App calls `/usage/record` after each successful AI request.
-5. **On upgrade click:** App opens `https://redroostertech.com/helm/pricing` in system browser.
+5. **On upgrade click:** App opens `https://redroostertec.com/helm/pricing` in system browser.
 6. **After purchase:** Stripe webhook updates user tier. Next `/license/validate` call picks it up.
 
 ### Files to Update in HELM App
@@ -435,7 +435,7 @@ customer.subscription.updated
 **`src/main/licensing.ts`** — Replace `validateWithBackend()` stub:
 ```typescript
 private async validateWithBackend(email: string, licenseKey: string) {
-  const response = await fetch('https://redroostertech.com/helm/api/license/activate', {
+  const response = await fetch('https://redroostertec.com/helm/api/license/activate', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -450,7 +450,7 @@ private async validateWithBackend(email: string, licenseKey: string) {
 **`src/main/main.ts`** — Add usage recording to AI handlers:
 ```typescript
 // After successful AI call:
-fetch('https://redroostertech.com/helm/api/usage/record', {
+fetch('https://redroostertec.com/helm/api/usage/record', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -476,7 +476,7 @@ HELM_OPENAI_KEY=sk-proj-...
 ### Desktop App (.env)
 ```
 HELM_OPENAI_KEY=sk-proj-...
-HELM_API_URL=https://redroostertech.com/helm/api
+HELM_API_URL=https://redroostertec.com/helm/api
 ```
 
 ---
