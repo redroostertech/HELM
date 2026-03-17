@@ -11,6 +11,13 @@
     "build:react": "vite build",
     "build:electron": "tsc -p tsconfig.main.json",
     "package": "electron-builder",
+    "package:mac": "electron-builder --mac",
+    "package:mac-arm64": "electron-builder --mac --arm64",
+    "package:mac-x64": "electron-builder --mac --x64",
+    "package:win": "electron-builder --win",
+    "package:linux": "electron-builder --linux",
+    "package:all": "electron-builder --mac --win --linux",
+    "release": "./scripts/build-release.sh",
     "start": "electron .",
     "setup:db": "./scripts/setup-database.sh",
     "postinstall": "electron-rebuild -f -w node-pty"
@@ -53,6 +60,8 @@
   "build": {
     "appId": "com.redrooster.helm",
     "productName": "HELM",
+    "copyright": "Copyright (c) 2026 RedRooster Technologies Inc.",
+    "artifactName": "HELM-${version}-${arch}.${ext}",
     "icon": "build/icon.icns",
     "protocols": [
       {
@@ -60,13 +69,65 @@
         "schemes": ["helm"]
       }
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "redroostertech",
+      "repo": "HELM",
+      "releaseType": "release"
+    },
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
       ]
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HELM",
+      "artifactName": "HELM-${version}-setup.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "build/icon.png"
     },
     "files": [
       "dist/**/*",
