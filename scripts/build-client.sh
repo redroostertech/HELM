@@ -195,13 +195,38 @@ case $PLATFORM in
         ;;
 esac
 
-# Skip notarization flag
-if [ "$SKIP_NOTARIZE" = true ]; then
-    export CSC_IDENTITY_AUTO_DISCOVERY=false
+# Patch notarize config in package.json before building
+PATCHED_PKG=false
+if [ "$PLATFORM" = "mac" ] || [ "$PLATFORM" = "all" ]; then
+    if [ "$SKIP_NOTARIZE" = true ]; then
+        export CSC_IDENTITY_AUTO_DISCOVERY=false
+        node -e "
+          const pkg = require('./package.json');
+          pkg.build.mac.notarize = false;
+          require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+        "
+    else
+        # Inject teamId into notarize config (required by @electron/notarize 2.x)
+        node -e "
+          const pkg = require('./package.json');
+          pkg.build.mac.notarize = { teamId: process.env.APPLE_TEAM_ID || '' };
+          require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+        "
+    fi
+    PATCHED_PKG=true
 fi
 
 info "Running: electron-builder ${BUILD_ARGS}"
 npx electron-builder $BUILD_ARGS
+
+# Restore package.json notarize setting
+if [ "$PATCHED_PKG" = true ]; then
+    node -e "
+      const pkg = require('./package.json');
+      pkg.build.mac.notarize = true;
+      require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+    "
+fi
 
 success "Packaging complete"
 
