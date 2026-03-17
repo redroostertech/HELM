@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as http from 'http';
 import * as dotenv from 'dotenv';
 
 // Load .env from project root (dev) or app resources (production)
@@ -39,6 +40,15 @@ import { LicenseManager } from './licensing';
 // Bundled API key — proxied through RedRooster's account
 const HELM_OPENAI_KEY = process.env.HELM_OPENAI_KEY || '';
 
+// Register custom protocol for deep linking (helm://)
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('helm', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('helm');
+}
+
 let mainWindow: BrowserWindow | null = null;
 let ptyManager: PTYManager | null = null;
 let db: DatabaseManager | null = null;
@@ -69,6 +79,24 @@ function createAIService(settings?: any): AIService {
 
   console.log('🧠 No API key configured');
   return new OpenAIService('', 'gpt-4o-mini');
+}
+
+/** Sync license/subscription state with the backend and notify the renderer */
+async function syncWithBackend(): Promise<boolean> {
+  if (!licenseManager || !licenseManager.isAuthenticated()) return false;
+  try {
+    const valid = await licenseManager.validateSession();
+    if (valid) {
+      aiService = createAIService();
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('auth:stateChanged', licenseManager.getAuthState());
+      mainWindow.webContents.send('license:updated', licenseManager.getUsageSummary());
+    }
+    return valid;
+  } catch {
+    return false;
+  }
 }
 
 function createWindow() {
@@ -103,6 +131,23 @@ function createWindow() {
 
   // Set up IPC handlers
   setupIPCHandlers();
+
+  // Validate auth session with backend on launch
+  syncWithBackend().then((valid) => {
+    console.log(valid ? '✅ Auth session validated' : 'ℹ️ No active auth session');
+  });
+
+  // Auto-sync every 30 minutes
+  setInterval(() => {
+    syncWithBackend().then((synced) => {
+      if (synced) console.log('🔄 Background sync complete');
+    });
+  }, 30 * 60 * 1000);
+
+  // Sync when app window gains focus (user switches back to HELM)
+  mainWindow.on('focus', () => {
+    syncWithBackend().catch(() => {});
+  });
 }
 
 function setupIPCHandlers() {
@@ -233,6 +278,8 @@ function setupIPCHandlers() {
     checkAccess();
     const result = await aiService.ask(question, context);
     trackUsage();
+    const s = loadSettings();
+    licenseManager?.recordUsageToBackend('chat', s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel);
     return result;
   });
 
@@ -241,6 +288,8 @@ function setupIPCHandlers() {
     checkAccess();
     const result = await aiService.explainCommand(command);
     trackUsage();
+    const s = loadSettings();
+    licenseManager?.recordUsageToBackend('explain', s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel);
     return result;
   });
 
@@ -249,6 +298,8 @@ function setupIPCHandlers() {
     checkAccess();
     const result = await aiService.suggestCommand(intent, workingDir);
     trackUsage();
+    const s = loadSettings();
+    licenseManager?.recordUsageToBackend('suggest', s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel);
     return result;
   });
 
@@ -389,9 +440,211 @@ function setupIPCHandlers() {
     return true;
   });
 
+  // Auth handlers
+  ipcMain.handle('auth:getState', async () => {
+    return licenseManager?.getAuthState() || {
+      isAuthenticated: false,
+      email: null,
+      userName: null,
+      userId: null,
+      tier: 'free',
+    };
+  });
+
+  ipcMain.handle('auth:login', async (_, email: string, password: string) => {
+    if (!licenseManager) return { success: false, error: 'License manager not initialized' };
+    const result = await licenseManager.login(email, password);
+    if (result.success) {
+      aiService = createAIService();
+      // Notify renderer of auth state change
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('auth:stateChanged', licenseManager.getAuthState());
+      }
+    }
+    return result;
+  });
+
+  ipcMain.handle('auth:logout', async () => {
+    licenseManager?.logout();
+    aiService = createAIService();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('auth:stateChanged', licenseManager!.getAuthState());
+    }
+    return true;
+  });
+
+  ipcMain.handle('auth:sync', async () => {
+    const synced = await syncWithBackend();
+    return {
+      success: synced,
+      usage: licenseManager?.getUsageSummary() || null,
+      authState: licenseManager?.getAuthState() || null,
+    };
+  });
+
+  ipcMain.handle('auth:openLogin', async () => {
+    if (!licenseManager) return;
+    await startAuthFlowInBrowser('login');
+  });
+
+  ipcMain.handle('auth:openRegister', async () => {
+    if (!licenseManager) return;
+    await startAuthFlowInBrowser('register');
+  });
+
+  ipcMain.handle('auth:openPricing', async () => {
+    if (!licenseManager) return;
+    const url = licenseManager.getPricingUrl();
+    shell.openExternal(url);
+  });
+
+}
+
+// Start a temporary local HTTP server to receive the auth callback from the browser.
+// This avoids the helm:// deep link issues in dev mode.
+let authCallbackServer: http.Server | null = null;
+
+async function startAuthFlowInBrowser(mode: 'login' | 'register') {
+  // Clean up any previous server
+  if (authCallbackServer) {
+    authCallbackServer.close();
+    authCallbackServer = null;
+  }
+
+  return new Promise<void>((resolve) => {
+    const server = http.createServer(async (req, res) => {
+      const url = new URL(req.url || '', `http://localhost`);
+
+      if (url.pathname === '/auth/callback') {
+        const token = url.searchParams.get('token');
+
+        // Send a nice response page that auto-closes
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>HELM - Signed In</title>
+            <style>
+              body { font-family: -apple-system, system-ui, sans-serif; background: #030303; color: #fff; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+              .container { text-align: center; max-width: 400px; }
+              .check { width: 64px; height: 64px; margin: 0 auto 24px; background: rgba(74,222,128,0.1); border: 1px solid rgba(74,222,128,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+              h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; letter-spacing: -0.03em; }
+              p { color: #888; font-size: 14px; line-height: 1.6; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="check">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <h1>You're all set!</h1>
+              <p>You've been signed in. You can return to the HELM app now.<br>This tab can be closed.</p>
+            </div>
+          </body>
+          </html>
+        `);
+
+        // Process the token
+        if (token && licenseManager) {
+          const result = await licenseManager.handleAuthCallback(token);
+          if (result.success) {
+            aiService = createAIService();
+            console.log('✅ Auth callback: logged in via local server');
+          }
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('auth:stateChanged', licenseManager.getAuthState());
+          }
+        }
+
+        // Focus the app window
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.focus();
+        }
+
+        // Shut down the callback server after a short delay
+        setTimeout(() => {
+          server.close();
+          authCallbackServer = null;
+        }, 1000);
+      } else {
+        res.writeHead(404);
+        res.end('Not found');
+      }
+    });
+
+    // Listen on a random available port
+    server.listen(0, '127.0.0.1', () => {
+      authCallbackServer = server;
+      const addr = server.address() as any;
+      const callbackPort = addr.port;
+      const callbackUrl = `http://127.0.0.1:${callbackPort}/auth/callback`;
+
+      // Build the web URL with the localhost callback
+      const webBase = app.isPackaged ? 'https://redroostertech.com' : 'http://localhost:1234';
+      const page = mode === 'login' ? 'login' : 'register';
+      const webUrl = `${webBase}/helm/${page}?callback=${encodeURIComponent(callbackUrl)}`;
+
+      console.log(`🔗 Auth flow: opening ${webUrl}`);
+      console.log(`🔗 Callback server listening on port ${callbackPort}`);
+
+      shell.openExternal(webUrl);
+      resolve();
+    });
+  });
 }
 
 app.whenReady().then(createWindow);
+
+// Handle deep links (helm://auth/callback?token=xxx) — used in packaged builds
+function handleDeepLink(url: string) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'auth' && parsed.pathname === '/callback') {
+      const token = parsed.searchParams.get('token');
+      if (token && licenseManager) {
+        licenseManager.handleAuthCallback(token).then((result) => {
+          if (result.success) {
+            aiService = createAIService();
+            console.log('✅ Auth callback: logged in');
+          }
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('auth:stateChanged', licenseManager!.getAuthState());
+          }
+        });
+      }
+    }
+  } catch {}
+}
+
+// macOS: handle URL when app is already running
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+  // Focus the app window
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+// Ensure single instance — second instance passes URL to first
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    // Windows/Linux: deep link URL comes in commandLine
+    const url = commandLine.find(arg => arg.startsWith('helm://'));
+    if (url) handleDeepLink(url);
+
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

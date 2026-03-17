@@ -15,6 +15,16 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
     if (isOpen) loadSessions();
   }, [isOpen]);
 
+  useEffect(() => {
+    const handleCleared = () => {
+      setSessions([]);
+      setActiveSession(null);
+      setSessionCommands([]);
+    };
+    window.addEventListener('history-cleared', handleCleared);
+    return () => window.removeEventListener('history-cleared', handleCleared);
+  }, []);
+
   const loadSessions = async () => {
     try {
       const s = await window.electronAPI.dbGetSessions();

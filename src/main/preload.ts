@@ -62,6 +62,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   licenseActivate: (email: string, licenseKey: string) =>
     ipcRenderer.invoke('license:activate', email, licenseKey),
   licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
+
+  // Auth
+  authGetState: () => ipcRenderer.invoke('auth:getState'),
+  authLogin: (email: string, password: string) =>
+    ipcRenderer.invoke('auth:login', email, password),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
+  authSync: () => ipcRenderer.invoke('auth:sync'),
+  authOpenLogin: () => ipcRenderer.invoke('auth:openLogin'),
+  authOpenRegister: () => ipcRenderer.invoke('auth:openRegister'),
+  authOpenPricing: () => ipcRenderer.invoke('auth:openPricing'),
+  onAuthStateChanged: (callback: (state: any) => void) => {
+    const handler = (_: any, state: any) => callback(state);
+    ipcRenderer.on('auth:stateChanged', handler);
+    return () => ipcRenderer.removeListener('auth:stateChanged', handler);
+  },
+  onLicenseUpdated: (callback: (usage: any) => void) => {
+    const handler = (_: any, usage: any) => callback(usage);
+    ipcRenderer.on('license:updated', handler);
+    return () => ipcRenderer.removeListener('license:updated', handler);
+  },
+
   // Database
   dbGetCommands: (sessionId?: number) =>
     ipcRenderer.invoke('db:getCommands', sessionId),
@@ -117,6 +138,23 @@ export interface ElectronAPI {
   licenseGetUsage: () => Promise<any>;
   licenseActivate: (email: string, licenseKey: string) => Promise<{ success: boolean; error?: string }>;
   licenseDeactivate: () => Promise<boolean>;
+
+  authGetState: () => Promise<{
+    isAuthenticated: boolean;
+    email: string | null;
+    userName: string | null;
+    userId: string | null;
+    tier: string;
+  }>;
+  authLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  authLogout: () => Promise<boolean>;
+  authSync: () => Promise<{ success: boolean; usage: any; authState: any }>;
+  authOpenLogin: () => Promise<void>;
+  authOpenRegister: () => Promise<void>;
+  authOpenPricing: () => Promise<void>;
+  onAuthStateChanged: (callback: (state: any) => void) => () => void;
+  onLicenseUpdated: (callback: (usage: any) => void) => () => void;
+
   fsListDirs: (inputPath: string) => Promise<string[]>;
 
   settingsLoad: () => Promise<any>;

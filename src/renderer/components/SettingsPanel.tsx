@@ -10,19 +10,43 @@ interface Settings {
   anthropicModel: string;
 }
 
+interface AuthState {
+  isAuthenticated: boolean;
+  email: string | null;
+  userName: string | null;
+  tier: string;
+}
+
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onSettingsChange: (settings: Settings) => void;
   currentSettings: Settings;
+  authState: AuthState;
+  onAuthStateChange: (state: AuthState) => void;
 }
 
-export default function SettingsPanel({ isOpen, onClose, onSettingsChange, currentSettings }: SettingsPanelProps) {
+function formatSyncTime(isoDate: string): string {
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+export default function SettingsPanel({ isOpen, onClose, onSettingsChange, currentSettings, authState, onAuthStateChange }: SettingsPanelProps) {
   const [settings, setSettings] = useState<Settings>(currentSettings);
   const [showApiKey, setShowApiKey] = useState(false);
   const [saved, setSaved] = useState(false);
   const [usage, setUsage] = useState<any>(null);
   const [byoExpanded, setByoExpanded] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     setSettings(currentSettings);
@@ -53,14 +77,113 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
     <div className="settings-overlay">
       <div className="settings-header">
         <h2>Settings</h2>
-        <button className="settings-close" onClick={onClose}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-          </svg>
-        </button>
+        <div className="settings-header-actions">
+          {authState.isAuthenticated && (
+            <div className="settings-sync-group">
+              {usage?.lastSyncedAt && (
+                <span className="last-synced">Synced {formatSyncTime(usage.lastSyncedAt)}</span>
+              )}
+              <button
+                className="sync-btn"
+                disabled={syncing}
+                onClick={async () => {
+                  setSyncing(true);
+                  try {
+                    const result = await window.electronAPI.authSync();
+                    if (result.usage) setUsage(result.usage);
+                    if (result.authState) onAuthStateChange(result.authState);
+                  } finally {
+                    setSyncing(false);
+                  }
+                }}
+                title="Refresh subscription status"
+              >
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className={syncing ? 'spin' : ''}
+                >
+                  <polyline points="23 4 23 10 17 10"/>
+                  <polyline points="1 20 1 14 7 14"/>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+                {syncing ? 'Syncing...' : 'Refresh'}
+              </button>
+            </div>
+          )}
+          <button className="settings-close" onClick={onClose}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div className="settings-body">
+        {/* Account */}
+        <section className="settings-section">
+          <h3>Account</h3>
+          {authState.isAuthenticated ? (
+            <>
+              <div className="setting-row">
+                <label>Signed in as</label>
+                <span className="settings-info-text">
+                  {authState.userName || authState.email}
+                </span>
+              </div>
+              {authState.email && authState.userName && (
+                <div className="setting-row">
+                  <label>Email</label>
+                  <span className="settings-info-text">{authState.email}</span>
+                </div>
+              )}
+              <div className="setting-row">
+                <label></label>
+                <button
+                  className="danger-btn"
+                  disabled={loggingOut}
+                  onClick={async () => {
+                    setLoggingOut(true);
+                    try {
+                      await window.electronAPI.authLogout();
+                      const state = await window.electronAPI.authGetState();
+                      onAuthStateChange(state);
+                    } finally {
+                      setLoggingOut(false);
+                    }
+                  }}
+                >
+                  {loggingOut ? 'Signing out...' : 'Sign Out'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="settings-hint" style={{ marginTop: 0, marginBottom: 16 }}>
+                Sign in to unlock AI features including command explanations and chat.
+              </p>
+              <div className="auth-buttons">
+                <button
+                  className="auth-login-btn"
+                  onClick={() => window.electronAPI.authOpenLogin()}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                    <polyline points="10 17 15 12 10 7"/>
+                    <line x1="15" y1="12" x2="3" y2="12"/>
+                  </svg>
+                  Sign In
+                </button>
+                <button
+                  className="auth-register-btn"
+                  onClick={() => window.electronAPI.authOpenRegister()}
+                >
+                  Create Account
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+
         {/* Appearance */}
         <section className="settings-section">
           <h3>Appearance</h3>
@@ -127,6 +250,18 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                   )}
                 </>
               ) : null}
+              {authState.isAuthenticated && (
+                <div className="setting-row" style={{ marginTop: 8 }}>
+                  <label>Subscription</label>
+                  <button
+                    className="auth-register-btn"
+                    onClick={() => window.electronAPI.authOpenPricing()}
+                    style={{ padding: '6px 16px', fontSize: '12px' }}
+                  >
+                    Manage Subscription
+                  </button>
+                </div>
+              )}
             </>
           )}
         </section>

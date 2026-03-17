@@ -56,9 +56,9 @@ export default function ExplainPane({ explanation: rawExplanation, isLoading, se
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
             </svg>
             <h3>Command Explanations</h3>
-            <p>Get AI-powered breakdowns of any terminal command.</p>
+            <p>Sign in to get AI-powered breakdowns of any terminal command.</p>
             <button className="explain-upgrade-btn" onClick={onUpgrade}>
-              Upgrade to Pro
+              Sign In to Unlock
             </button>
           </div>
         )}

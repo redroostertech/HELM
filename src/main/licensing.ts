@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { HelmAPI } from './helm-api';
 
 // BYOK ($2.99/mo): bring your own key, unlimited AI
 // Basic ($9.99/mo): HELM key, 500 AI calls/month
@@ -14,6 +15,10 @@ export interface License {
   licenseKey: string | null;
   expiresAt: string | null; // ISO date
   activatedAt: string | null;
+  token: string | null; // JWT auth token
+  userName: string | null;
+  userId: string | null;
+  lastSyncedAt: string | null; // ISO date of last backend sync
   usageThisMonth: {
     aiCalls: number;
     resetDate: string; // ISO date of next reset
@@ -31,8 +36,10 @@ const TIER_CONFIG = {
 
 export class LicenseManager {
   private license: License;
+  private api: HelmAPI;
 
   constructor() {
+    this.api = new HelmAPI();
     this.license = this.load();
   }
 
@@ -57,6 +64,10 @@ export class LicenseManager {
       licenseKey: null,
       expiresAt: null,
       activatedAt: null,
+      token: null,
+      userName: null,
+      userId: null,
+      lastSyncedAt: null,
       usageThisMonth: this.freshUsage(),
     };
   }
@@ -153,14 +164,24 @@ export class LicenseManager {
     expiresAt: string;
     error?: string;
   }> {
-    // TODO: Replace with actual API call when backend is ready
-    // const response = await fetch('https://redroostertech.com/helm/api/activate', {
-    //   method: 'POST',
-    //   headers: { 'Content-Type': 'application/json' },
-    //   body: JSON.stringify({ email, licenseKey }),
-    // });
+    // Try backend validation first if we have a token
+    if (this.license.token) {
+      try {
+        const result = await this.api.activateLicense(this.license.token, licenseKey);
+        return {
+          valid: result.valid,
+          tier: result.tier as UserTier,
+          expiresAt: result.expiresAt,
+        };
+      } catch (err: any) {
+        // If 401, token expired — fall through to local validation
+        if (err.status !== 401) {
+          console.warn('Backend license validation failed, using local fallback:', err.message);
+        }
+      }
+    }
 
-    // For now: accept keys by prefix. Backend will validate for real.
+    // Local fallback: accept keys by prefix
     const expiresAt = new Date();
     expiresAt.setFullYear(expiresAt.getFullYear() + 1);
 
@@ -177,6 +198,166 @@ export class LicenseManager {
     return { valid: false, tier: 'free', expiresAt: '', error: 'Invalid license key' };
   }
 
+  // --- Auth Methods ---
+
+  /** Check if user is authenticated */
+  isAuthenticated(): boolean {
+    return !!this.license.token;
+  }
+
+  /** Get auth state for the renderer */
+  getAuthState(): {
+    isAuthenticated: boolean;
+    email: string | null;
+    userName: string | null;
+    userId: string | null;
+    tier: UserTier;
+  } {
+    return {
+      isAuthenticated: this.isAuthenticated(),
+      email: this.license.email,
+      userName: this.license.userName,
+      userId: this.license.userId,
+      tier: this.getTier(),
+    };
+  }
+
+  /** Get the stored JWT token */
+  getToken(): string | null {
+    return this.license.token;
+  }
+
+  /** Login with email and password via the backend */
+  async login(email: string, password: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const result = await this.api.login(email, password);
+      this.license.token = result.token;
+      this.license.email = result.user.email;
+      this.license.userName = result.user.name;
+      this.license.userId = result.user.id;
+      this.license.tier = result.user.tier || 'free';
+      this.save();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Login failed' };
+    }
+  }
+
+  /** Handle auth callback token from browser login */
+  async handleAuthCallback(token: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Validate the token by fetching user profile
+      const user = await this.api.getMe(token);
+      this.license.token = token;
+      this.license.email = user.email;
+      this.license.userName = user.name;
+      this.license.userId = user.id;
+      this.license.tier = user.tier || 'free';
+      this.license.lastSyncedAt = new Date().toISOString();
+      if (user.subscription?.currentPeriodEnd) {
+        this.license.expiresAt = user.subscription.currentPeriodEnd;
+      }
+      this.save();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Auth callback failed' };
+    }
+  }
+
+  /** Logout — clear auth token but keep local settings */
+  logout(): void {
+    this.license.token = null;
+    this.license.userName = null;
+    this.license.userId = null;
+    // Reset to free tier on logout
+    this.license.tier = 'free';
+    this.license.email = null;
+    this.license.licenseKey = null;
+    this.license.expiresAt = null;
+    this.license.activatedAt = null;
+    this.save();
+  }
+
+  /** Validate session with backend — syncs tier, usage, and timestamps */
+  async validateSession(): Promise<boolean> {
+    if (!this.license.token) return false;
+
+    try {
+      const result = await this.api.validateLicense(this.license.token);
+      if (result.valid) {
+        this.license.tier = result.tier as UserTier;
+        this.license.expiresAt = result.expiresAt;
+        this.license.lastSyncedAt = new Date().toISOString();
+        if (result.usage) {
+          this.license.usageThisMonth.aiCalls = result.usage.aiCalls;
+        }
+
+        // Also fetch detailed usage summary to keep local counts accurate
+        try {
+          const summary = await this.api.getUsageSummary(this.license.token);
+          if (summary) {
+            this.license.usageThisMonth.aiCalls = summary.aiCalls || 0;
+            if (summary.resetDate) {
+              this.license.usageThisMonth.resetDate = summary.resetDate;
+            }
+          }
+        } catch {
+          // Non-critical — usage summary fetch failed, keep license/validate data
+        }
+
+        this.save();
+        return true;
+      }
+    } catch (err: any) {
+      // If 401, token expired
+      if (err.status === 401) {
+        // Try token refresh
+        try {
+          const refreshed = await this.api.refreshToken(this.license.token);
+          this.license.token = refreshed.token;
+          this.save();
+          return await this.validateSession(); // retry with new token
+        } catch {
+          // Refresh failed — clear auth
+          this.logout();
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Record AI usage to backend (fire-and-forget) */
+  recordUsageToBackend(type: string, model: string): void {
+    if (!this.license.token) return;
+    this.api.recordUsage(this.license.token, type, model)
+      .then((result) => {
+        if (result?.usage) {
+          // Sync local usage count with backend
+          this.license.usageThisMonth.aiCalls = result.usage.aiCalls;
+          this.save();
+          console.log(`📊 Usage recorded: ${type} (${result.usage.aiCalls}/${result.usage.aiCallsLimit || '∞'})`);
+        }
+      })
+      .catch((err) => {
+        console.warn('📊 Usage recording failed:', err.message);
+      });
+  }
+
+  /** Get login URL for opening in browser */
+  getLoginUrl(): string {
+    return this.api.getLoginUrl();
+  }
+
+  /** Get register URL for opening in browser */
+  getRegisterUrl(): string {
+    return this.api.getRegisterUrl();
+  }
+
+  /** Get pricing URL for upgrade */
+  getPricingUrl(): string {
+    return this.api.getPricingUrl();
+  }
+
   /** Get usage summary for display */
   getUsageSummary(): {
     tier: UserTier;
@@ -185,6 +366,8 @@ export class LicenseManager {
     aiCallsLimit: number; // -1 = unlimited
     usesOwnKey: boolean;
     resetDate: string;
+    isAuthenticated: boolean;
+    lastSyncedAt: string | null;
   } {
     const tier = this.getTier();
     const config = TIER_CONFIG[tier];
@@ -195,6 +378,8 @@ export class LicenseManager {
       aiCallsLimit: config.aiCallsPerMonth,
       usesOwnKey: config.usesOwnKey,
       resetDate: this.license.usageThisMonth.resetDate,
+      isAuthenticated: this.isAuthenticated(),
+      lastSyncedAt: this.license.lastSyncedAt,
     };
   }
 }

@@ -264,9 +264,9 @@ export default function ChatPane({ isOpen, activeTabId, theme, isPro = false, on
             </svg>
           </div>
           <h3>AI Chat</h3>
-          <p>Ask questions, get command suggestions, and run code directly in your terminal.</p>
+          <p>Sign in to ask questions, get command suggestions, and run code directly in your terminal.</p>
           <button className="chat-upgrade-btn" onClick={onUpgrade}>
-            Upgrade to Pro
+            Sign In to Unlock
           </button>
         </div>
       </div>

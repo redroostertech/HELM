@@ -54,6 +54,12 @@
     "appId": "com.redrooster.helm",
     "productName": "HELM",
     "icon": "build/icon.icns",
+    "protocols": [
+      {
+        "name": "HELM",
+        "schemes": ["helm"]
+      }
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",

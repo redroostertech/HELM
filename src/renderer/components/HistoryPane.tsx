@@ -19,7 +19,19 @@ export default function HistoryPane({ onCommandSelect, selectedCommandId }: Hist
     loadBookmarkedIds();
     loadExplainedCommands();
     const interval = setInterval(loadCommands, 3000);
-    return () => clearInterval(interval);
+
+    const handleCleared = () => {
+      setCommands([]);
+      setBookmarks([]);
+      setBookmarkedIds(new Set());
+      setExplainedCmds(new Set());
+    };
+    window.addEventListener('history-cleared', handleCleared);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('history-cleared', handleCleared);
+    };
   }, []);
 
   const loadCommands = async () => {

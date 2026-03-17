@@ -76,6 +76,15 @@ function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [usage, setUsage] = useState<any>(null);
+  const [authState, setAuthState] = useState<{
+    isAuthenticated: boolean;
+    email: string | null;
+    userName: string | null;
+    tier: string;
+  }>({ isAuthenticated: false, email: null, userName: null, tier: 'free' });
+
+  // AI features require authentication
+  const isAuthenticated = authState.isAuthenticated;
 
   // Persist tabs
   useEffect(() => {
@@ -97,10 +106,28 @@ function App() {
 
     window.electronAPI.licenseGetUsage().then(setUsage).catch(() => {});
 
+    // Load auth state
+    window.electronAPI.authGetState().then(setAuthState).catch(() => {});
+
+    // Listen for auth state changes (e.g. from login callback, focus sync)
+    const cleanupAuth = window.electronAPI.onAuthStateChanged((state: any) => {
+      setAuthState(state);
+      window.electronAPI.licenseGetUsage().then(setUsage).catch(() => {});
+    });
+
+    // Listen for license/subscription updates (background sync, focus sync)
+    const cleanupLicense = window.electronAPI.onLicenseUpdated((newUsage: any) => {
+      setUsage(newUsage);
+    });
+
     // Listen for delete history event from settings
     const handler = () => setShowDeleteConfirm(true);
     window.addEventListener('show-delete-history-modal', handler);
-    return () => window.removeEventListener('show-delete-history-modal', handler);
+    return () => {
+      window.removeEventListener('show-delete-history-modal', handler);
+      cleanupAuth();
+      cleanupLicense();
+    };
   }, []);
 
   // Update tab descriptions and memory periodically
@@ -214,6 +241,10 @@ function App() {
   const handleDeleteHistory = async () => {
     await window.electronAPI.dbClearHistory();
     setShowDeleteConfirm(false);
+    setSelectedCommand(null);
+    setExplanation(null);
+    // Notify all panes to refresh
+    window.dispatchEvent(new Event('history-cleared'));
   };
 
   return (
@@ -243,12 +274,12 @@ function App() {
 
       {/* Main content */}
       <div className="main-content">
-        {/* Chat pane (left side) */}
+        {/* Chat pane (left side) — hidden when not authenticated */}
         <ChatPane
           isOpen={chatOpen}
           activeTabId={activeTabId}
           theme={settings.theme}
-          isPro={true}
+          isPro={isAuthenticated}
           onUpgrade={() => { setChatOpen(false); setSettingsOpen(true); }}
         />
         <div className="terminal-container">
@@ -293,7 +324,7 @@ function App() {
                   explanation={explanation}
                   isLoading={isExplaining}
                   selectedCommand={selectedCommand}
-                  isPro={true}
+                  isPro={isAuthenticated}
                   onUpgrade={() => setSettingsOpen(true)}
                 />
               )}
@@ -308,6 +339,11 @@ function App() {
         onClose={() => setSettingsOpen(false)}
         onSettingsChange={handleSettingsChange}
         currentSettings={settings}
+        authState={authState}
+        onAuthStateChange={(state) => {
+          setAuthState(state);
+          window.electronAPI.licenseGetUsage().then(setUsage).catch(() => {});
+        }}
       />
 
       {/* Delete history confirmation */}
