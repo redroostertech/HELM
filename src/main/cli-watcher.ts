@@ -44,8 +44,8 @@ export class CLIConversationWatcher {
    */
   async startWatching(cliSessionId: number, ptyPid: number): Promise<void> {
     // Claude Code spawns as a child of the shell, so we need to find its PID
-    // Wait a moment for Claude Code to create its session file
-    setTimeout(() => this.findAndWatch(cliSessionId, ptyPid), 2000);
+    // Wait for Claude Code to initialize and create its session file
+    setTimeout(() => this.findAndWatch(cliSessionId, ptyPid), 5000);
   }
 
   /**
@@ -94,21 +94,30 @@ export class CLIConversationWatcher {
     }
 
     const conversationFile = path.join(projectDir, `${sessionMeta.sessionId}.jsonl`);
-    if (!fs.existsSync(conversationFile)) {
-      console.log(`⚠️ Conversation file not found: ${conversationFile}, waiting...`);
-      // File might not exist yet, poll for it
-      const checkInterval = setInterval(() => {
-        if (fs.existsSync(conversationFile)) {
-          clearInterval(checkInterval);
-          this.watchConversationFile(cliSessionId, conversationFile);
-        }
-      }, 1000);
-      // Stop checking after 30 seconds
-      setTimeout(() => clearInterval(checkInterval), 30000);
+    console.log(`🔍 Looking for conversation file: ${conversationFile}`);
+
+    if (fs.existsSync(conversationFile)) {
+      this.watchConversationFile(cliSessionId, conversationFile);
       return;
     }
 
-    this.watchConversationFile(cliSessionId, conversationFile);
+    console.log(`⚠️ Conversation file not found yet, polling...`);
+    // File might not exist yet, poll for it
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      attempts++;
+      const exists = fs.existsSync(conversationFile);
+      if (exists) {
+        console.log(`✅ Conversation file appeared after ${attempts}s`);
+        clearInterval(checkInterval);
+        this.watchConversationFile(cliSessionId, conversationFile);
+      } else if (attempts >= 60) {
+        console.log(`⚠️ Gave up waiting for conversation file after 60s`);
+        clearInterval(checkInterval);
+        // Fall back to history.jsonl
+        this.watchHistoryFile(cliSessionId, sessionMeta.sessionId);
+      }
+    }, 1000);
   }
 
   /**
