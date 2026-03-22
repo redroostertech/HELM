@@ -326,6 +326,11 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
                             </div>
                           </div>
                           <span className="timeline-time">{formatTime(input.timestamp)}</span>
+                          {input.output_preview && (
+                            <div className="timeline-cli-response">
+                              <pre>{input.output_preview}</pre>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}

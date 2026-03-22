@@ -507,6 +507,36 @@
   color: #555;
 }
 
+/* CLI response preview */
+.timeline-cli-response {
+  margin-top: 6px;
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 8px 10px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.timeline-cli-response pre {
+  font-family: 'Menlo', monospace;
+  font-size: 11px;
+  color: #aaa;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  line-height: 1.4;
+}
+
+[data-theme="light"] .timeline-cli-response {
+  background: #f5f5f5;
+  border-color: #ddd;
+}
+
+[data-theme="light"] .timeline-cli-response pre {
+  color: #555;
+}
+
 /* CLI exit marker */
 .timeline-cli-exit {
   display: flex;

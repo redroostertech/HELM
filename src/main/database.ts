@@ -467,6 +467,13 @@ export class DatabaseManager {
     return result.rows;
   }
 
+  async updateCLIInputResponse(inputId: number, response: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE cli_inputs SET output_preview = $2 WHERE id = $1',
+      [inputId, response]
+    );
+  }
+
   async getCLIInputs(cliSessionId: number): Promise<CLIInput[]> {
     const result = await this.pool.query(
       'SELECT * FROM cli_inputs WHERE cli_session_id = $1 ORDER BY timestamp ASC',

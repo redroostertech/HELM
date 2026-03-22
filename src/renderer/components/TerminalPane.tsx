@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -37,6 +37,7 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const initializedRef = useRef(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (!terminalRef.current || initializedRef.current) return;
@@ -67,6 +68,7 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
     // Set up data handler and store cleanup
     const removeDataListener = window.electronAPI.onPtyData((_tabId: string, data: string) => {
       if (_tabId === tabId) {
+        setIsLoading(false);
         terminal.write(data);
       }
     });
@@ -115,7 +117,13 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
 
   return (
     <div className="pane terminal-pane" style={{ display: isVisible ? 'flex' : 'none' }}>
-      <div className="pane-content" ref={terminalRef} />
+      {isLoading && (
+        <div className="terminal-loading">
+          <div className="terminal-loading-spinner" />
+          <span>Starting terminal...</span>
+        </div>
+      )}
+      <div className="pane-content" ref={terminalRef} style={{ opacity: isLoading ? 0 : 1 }} />
     </div>
   );
 }

@@ -4,12 +4,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseManager } from './database';
 import { CLIProgram, DEFAULT_CLI_REGISTRY, detectCLIProgram } from './cli-registry';
+import { CLIConversationWatcher } from './cli-watcher';
 
 interface ActiveCLI {
   program: CLIProgram;
   cliSessionId: number;
-  currentInput: string;
-  outputBuffer: string;
   startedAt: Date;
   /** Timestamp of last user input — used to avoid premature exit detection */
   lastInputTime: number;
@@ -33,8 +32,10 @@ export class PTYManager {
   private instances: Map<string, PTYInstance> = new Map();
   private zshEnvDir: string;
   private cliRegistry: CLIProgram[];
+  private cliWatcher: CLIConversationWatcher;
 
   constructor(private db: DatabaseManager, customRegistry?: CLIProgram[]) {
+    this.cliWatcher = new CLIConversationWatcher(db);
     this.cliRegistry = customRegistry || DEFAULT_CLI_REGISTRY;
 
     const homeDir = process.env.HOME || os.homedir();
@@ -136,8 +137,8 @@ export class PTYManager {
       }
 
       if (instance.activeCLI) {
-        // In CLI mode: buffer output for exit detection and output previews
-        instance.activeCLI.outputBuffer += data;
+        // In CLI mode: conversation capture is handled by CLIConversationWatcher.
+        // Here we only check for exit detection.
 
         // Check if CLI program has exited (shell prompt reappeared)
         // Only check after a minimum time since last input to avoid false positives
@@ -173,25 +174,10 @@ export class PTYManager {
     if (!instance) return;
 
     if (instance.activeCLI) {
-      // In CLI mode: accumulate input, flush on Enter
-      if (data === '\r' || data === '\n') {
-        this.captureCLIInput(tabId);
-        instance.activeCLI.currentInput = '';
-        instance.activeCLI.outputBuffer = '';
-        instance.activeCLI.lastInputTime = Date.now();
-      } else if (data === '\x7f' || data === '\b') {
-        // Backspace: remove last character from accumulated input
-        instance.activeCLI.currentInput = instance.activeCLI.currentInput.slice(0, -1);
-      } else if (data === '\x03') {
-        // Ctrl+C: clear current input, might also exit CLI
-        instance.activeCLI.currentInput = '';
-      } else if (data.length === 1 && data.charCodeAt(0) >= 32) {
-        // Printable character
-        instance.activeCLI.currentInput += data;
-      } else if (data.length > 1 && !data.startsWith('\x1b')) {
-        // Pasted text (multi-char, non-escape)
-        instance.activeCLI.currentInput += data;
-      }
+      // In CLI mode: inputs are captured by the file watcher (CLIConversationWatcher),
+      // not from write() — TUI programs use raw terminal mode so keystrokes
+      // come through as escape sequences, not readable text.
+      instance.activeCLI.lastInputTime = Date.now();
     } else {
       // Normal shell mode
       instance.currentCommand += data;
@@ -216,6 +202,7 @@ export class PTYManager {
   }
 
   killAll(): void {
+    this.cliWatcher.stopAll();
     for (const [tabId, instance] of this.instances) {
       if (instance.activeCLI) {
         this.db.endCLISession(instance.activeCLI.cliSessionId).catch(() => {});
@@ -295,16 +282,14 @@ export class PTYManager {
     // switches to CLI mode. The cliSessionId is filled in async.
     instance.activeCLI = {
       program,
-      cliSessionId: -1, // placeholder until DB responds
-      currentInput: '',
-      outputBuffer: '',
+      cliSessionId: -1,
       startedAt: new Date(),
       lastInputTime: Date.now(),
     };
 
     console.log(`🔌 CLI detected: ${program.name} in tab ${tabId}`);
 
-    // Create DB record async, update the ID when ready
+    // Create DB record async, then start the file watcher
     this.db.createCLISession(
       instance.sessionId,
       commandId,
@@ -315,6 +300,11 @@ export class PTYManager {
       if (instance.activeCLI) {
         instance.activeCLI.cliSessionId = cliSessionId;
         console.log(`🔌 CLI session created: ${program.name} (session ${cliSessionId})`);
+
+        // Start watching the CLI program's conversation files
+        if (program.id === 'claude-code') {
+          this.cliWatcher.startWatching(cliSessionId, instance.process.pid);
+        }
       }
     }).catch((err) => {
       console.error('Failed to create CLI session:', err);
@@ -328,39 +318,15 @@ export class PTYManager {
     const cli = instance.activeCLI;
     console.log(`🔌 CLI exited: ${cli.program.name} (session ${cli.cliSessionId}) in tab ${tabId}`);
 
+    // Stop watching conversation files
+    this.cliWatcher.stopWatching(cli.cliSessionId);
+
     await this.db.endCLISession(cli.cliSessionId);
     instance.activeCLI = null;
 
     // Reset shell mode state
     instance.currentCommand = '';
     instance.outputBuffer = '';
-  }
-
-  private captureCLIInput(tabId: string): void {
-    const instance = this.instances.get(tabId);
-    if (!instance?.activeCLI) return;
-
-    const input = instance.activeCLI.currentInput.trim();
-    if (!input || input.length < 1) return;
-
-    // Capture first 500 chars of any buffered output as preview
-    const outputPreview = instance.activeCLI.outputBuffer
-      ? this.stripAnsi(instance.activeCLI.outputBuffer).slice(0, 500).trim()
-      : undefined;
-
-    const cliSessionId = instance.activeCLI.cliSessionId;
-
-    if (cliSessionId === -1) {
-      // DB record not ready yet — retry shortly
-      setTimeout(() => this.captureCLIInput(tabId), 100);
-      return;
-    }
-
-    this.db.saveCLIInput(cliSessionId, input, outputPreview).catch((err) => {
-      console.error('Failed to save CLI input:', err);
-    });
-
-    console.log(`📝 CLI input captured [${instance.activeCLI.program.name}]: "${input.slice(0, 80)}"`);
   }
 
   /**
