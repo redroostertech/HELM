@@ -120,14 +120,22 @@ export class CLIConversationWatcher {
     if (!fs.existsSync(projectsDir)) return null;
 
     // Claude Code encodes the path: /Users/foo/bar -> -Users-foo-bar
+    // The leading / becomes a leading -
     const encoded = cwd.replace(/\//g, '-');
 
+    // Try the encoded path directly (already has leading -)
     const fullPath = path.join(projectsDir, encoded);
     if (fs.existsSync(fullPath)) return fullPath;
 
-    // Try variations (with or without leading dash)
-    const withLeading = path.join(projectsDir, `-${encoded.replace(/^-/, '')}`);
-    if (fs.existsSync(withLeading)) return withLeading;
+    // Also scan project dirs for a match (handles edge cases)
+    try {
+      const dirs = fs.readdirSync(projectsDir);
+      for (const dir of dirs) {
+        if (dir === encoded || dir === encoded.slice(1)) {
+          return path.join(projectsDir, dir);
+        }
+      }
+    } catch {}
 
     return null;
   }
