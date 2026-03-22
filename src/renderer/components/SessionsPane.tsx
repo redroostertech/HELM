@@ -107,6 +107,11 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
     await navigator.clipboard.writeText(text);
   };
 
+  const pasteToTerminal = (text: string) => {
+    // Write the text to the active terminal tab (no trailing \r so user can review before sending)
+    window.electronAPI.ptyWrite(activeTabId, text);
+  };
+
   const toggleCLIExpanded = (cliSessionId: number) => {
     setExpandedCLI(prev => {
       const next = new Set(prev);
@@ -321,6 +326,15 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
                               >
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                </svg>
+                              </button>
+                              <button
+                                className="timeline-btn"
+                                onClick={() => pasteToTerminal(input.input)}
+                                title="Paste into terminal"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="17 11 12 6 7 11"/><line x1="12" y1="18" x2="12" y2="6"/>
                                 </svg>
                               </button>
                             </div>

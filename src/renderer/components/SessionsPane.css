@@ -494,6 +494,10 @@
   margin-top: 5px;
 }
 
+.timeline-cli-input-item:hover .timeline-actions {
+  opacity: 1;
+}
+
 .timeline-cli-input-text {
   font-family: 'Menlo', monospace;
   font-size: 11px;

@@ -33,6 +33,7 @@ export class PTYManager {
   private zshEnvDir: string;
   private cliRegistry: CLIProgram[];
   private cliWatcher: CLIConversationWatcher;
+  private hasReattached = false;
 
   constructor(private db: DatabaseManager, customRegistry?: CLIProgram[]) {
     this.cliWatcher = new CLIConversationWatcher(db);
@@ -90,18 +91,25 @@ export class PTYManager {
 
     console.log(`✅ PTY started for tab ${tabId}, PID:`, ptyProcess.pid);
 
-    // Try to reattach to a recent session, otherwise create a new one
+    // First tab on startup: try to reattach to a recent session.
+    // Additional tabs always get a new session.
     let sessionId: number;
     let workingDir = homeDir;
-    const reattachable = await this.db.getReattachableSession();
-    if (reattachable) {
-      sessionId = reattachable.id;
-      workingDir = reattachable.working_dir;
-      await this.db.reopenSession(sessionId);
-      console.log(`🔄 Reattached to session ${sessionId} (${workingDir})`);
+    if (!this.hasReattached) {
+      this.hasReattached = true;
+      const reattachable = await this.db.getReattachableSession();
+      if (reattachable) {
+        sessionId = reattachable.id;
+        workingDir = reattachable.working_dir;
+        await this.db.reopenSession(sessionId);
+        console.log(`🔄 Reattached to session ${sessionId} (${workingDir})`);
+      } else {
+        sessionId = await this.db.createSession(ptyProcess.process, homeDir);
+        console.log(`🆕 Created new session ${sessionId}`);
+      }
     } else {
       sessionId = await this.db.createSession(ptyProcess.process, homeDir);
-      console.log(`🆕 Created new session ${sessionId}`);
+      console.log(`🆕 Created new session ${sessionId} (new tab)`);
     }
 
     const instance: PTYInstance = {
