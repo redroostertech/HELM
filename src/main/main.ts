@@ -414,6 +414,36 @@ function setupIPCHandlers() {
     return true;
   });
 
+  // CLI session tracking handlers
+  ipcMain.handle('db:getCLISessions', async (_, sessionId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getCLISessions(sessionId);
+  });
+
+  ipcMain.handle('db:getCLIInputs', async (_, cliSessionId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getCLIInputs(cliSessionId);
+  });
+
+  ipcMain.handle('db:getSessionCommandsWithCLI', async (_, sessionId: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getSessionCommandsWithCLI(sessionId);
+  });
+
+  ipcMain.handle('db:getRecentCLIInputs', async (_, limit?: number) => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getRecentCLIInputs(limit);
+  });
+
+  ipcMain.handle('pty:getActiveCLI', async (_, tabId: string) => {
+    return ptyManager?.getActiveCLI(tabId) || null;
+  });
+
+  ipcMain.handle('pty:resumeSession', async (_, tabId: string, sessionId: number, workingDir: string) => {
+    ptyManager?.resumeSession(tabId, sessionId, workingDir);
+    return true;
+  });
+
   // Settings handlers
   ipcMain.handle('settings:load', async () => {
     return loadSettings();

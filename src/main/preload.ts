@@ -116,6 +116,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('db:saveLesson', title, description, sessionId),
   dbGetLessons: () =>
     ipcRenderer.invoke('db:getLessons'),
+
+  // CLI session tracking
+  dbGetCLISessions: (sessionId: number) =>
+    ipcRenderer.invoke('db:getCLISessions', sessionId),
+  dbGetCLIInputs: (cliSessionId: number) =>
+    ipcRenderer.invoke('db:getCLIInputs', cliSessionId),
+  dbGetSessionCommandsWithCLI: (sessionId: number) =>
+    ipcRenderer.invoke('db:getSessionCommandsWithCLI', sessionId),
+  dbGetRecentCLIInputs: (limit?: number) =>
+    ipcRenderer.invoke('db:getRecentCLIInputs', limit),
+  ptyGetActiveCLI: (tabId: string) =>
+    ipcRenderer.invoke('pty:getActiveCLI', tabId),
+  ptyResumeSession: (tabId: string, sessionId: number, workingDir: string) =>
+    ipcRenderer.invoke('pty:resumeSession', tabId, sessionId, workingDir),
 });
 
 export interface ElectronAPI {
@@ -178,6 +192,14 @@ export interface ElectronAPI {
   dbClearHistory: () => Promise<boolean>;
   dbSaveLesson: (title: string, description: string, sessionId: number) => Promise<number>;
   dbGetLessons: () => Promise<any[]>;
+
+  // CLI session tracking
+  dbGetCLISessions: (sessionId: number) => Promise<any[]>;
+  dbGetCLIInputs: (cliSessionId: number) => Promise<any[]>;
+  dbGetSessionCommandsWithCLI: (sessionId: number) => Promise<any[]>;
+  dbGetRecentCLIInputs: (limit?: number) => Promise<any[]>;
+  ptyGetActiveCLI: (tabId: string) => Promise<{ programId: string; programName: string } | null>;
+  ptyResumeSession: (tabId: string, sessionId: number, workingDir: string) => Promise<boolean>;
 }
 
 declare global {

@@ -207,6 +207,34 @@
   line-height: 1.6;
 }
 
+/* CLI input items in history */
+.cli-input-item {
+  border-left: 2px solid #555;
+}
+
+.cli-input-text {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  color: #b0b0b0;
+  font-style: italic;
+  flex: 1;
+  word-break: break-word;
+}
+
+[data-theme="light"] .cli-input-text {
+  color: #555;
+}
+
+.cli-program-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* Back button */
 .back-btn {
   background: transparent;

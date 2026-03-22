@@ -10,9 +10,15 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSession, setActiveSession] = useState<any>(null);
   const [sessionCommands, setSessionCommands] = useState<any[]>([]);
+  const [expandedCLI, setExpandedCLI] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (isOpen) loadSessions();
+    // Poll for session updates while open
+    if (isOpen) {
+      const interval = setInterval(loadSessions, 3000);
+      return () => clearInterval(interval);
+    }
   }, [isOpen]);
 
   useEffect(() => {
@@ -32,19 +38,50 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
     } catch {}
   };
 
-  const openSession = async (session: any) => {
-    setActiveSession(session);
+  const loadSessionCommands = async (sessionId: number) => {
     try {
-      const cmds = await window.electronAPI.dbGetSessionCommands(session.id);
+      const cmds = await window.electronAPI.dbGetSessionCommandsWithCLI(sessionId);
       setSessionCommands(cmds);
     } catch {
-      setSessionCommands([]);
+      try {
+        const cmds = await window.electronAPI.dbGetSessionCommands(sessionId);
+        setSessionCommands(cmds);
+      } catch {
+        setSessionCommands([]);
+      }
     }
   };
 
-  const resumeSession = (session: any) => {
-    // Navigate to the session's working directory
+  // Poll session detail while viewing one
+  useEffect(() => {
+    if (activeSession) {
+      const interval = setInterval(() => loadSessionCommands(activeSession.id), 3000);
+      return () => clearInterval(interval);
+    }
+  }, [activeSession]);
+
+  const openSession = async (session: any) => {
+    setActiveSession(session);
+    setExpandedCLI(new Set());
+    try {
+      const cmds = await window.electronAPI.dbGetSessionCommandsWithCLI(session.id);
+      setSessionCommands(cmds);
+    } catch {
+      // Fallback to regular commands if CLI method not available
+      try {
+        const cmds = await window.electronAPI.dbGetSessionCommands(session.id);
+        setSessionCommands(cmds);
+      } catch {
+        setSessionCommands([]);
+      }
+    }
+  };
+
+  const resumeSession = async (session: any) => {
     const dir = session.working_dir;
+    // Reattach this tab to the resumed session
+    await window.electronAPI.ptyResumeSession(activeTabId, session.id, dir);
+    // cd into the session's working directory
     if (dir) {
       window.electronAPI.ptyWrite(activeTabId, `cd ${dir}\r`);
     }
@@ -66,8 +103,20 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
     } catch {}
   };
 
-  const copyCommand = async (cmd: any) => {
-    await navigator.clipboard.writeText(cmd.input);
+  const copyCommand = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+  };
+
+  const toggleCLIExpanded = (cliSessionId: number) => {
+    setExpandedCLI(prev => {
+      const next = new Set(prev);
+      if (next.has(cliSessionId)) {
+        next.delete(cliSessionId);
+      } else {
+        next.add(cliSessionId);
+      }
+      return next;
+    });
   };
 
   const formatDuration = (start: string, end: string | null) => {
@@ -87,9 +136,11 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(hours / 24);
 
-    if (hours < 1) return 'Just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 2) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
     if (hours < 24) {
-      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      return 'Today ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
     }
     if (days < 7) {
       return date.toLocaleDateString('en-US', { weekday: 'short' }) + ' ' +
@@ -119,6 +170,15 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
           </button>
           <span className="sessions-header-title">Session Detail</span>
           <div className="sessions-header-actions">
+            <button
+              className="sessions-header-btn"
+              onClick={() => loadSessionCommands(activeSession.id)}
+              title="Refresh"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+              </svg>
+            </button>
             <button
               className="sessions-detail-delete-btn"
               onClick={(e) => deleteSession(activeSession.id, e)}
@@ -158,40 +218,133 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
         </div>
 
         <div className="session-timeline">
-          {sessionCommands.map((cmd, i) => (
-            <div key={cmd.id} className="timeline-item">
-              <div className="timeline-line">
-                <div className="timeline-dot" />
-                {i < sessionCommands.length - 1 && <div className="timeline-connector" />}
-              </div>
-              <div className="timeline-content">
-                <div className="timeline-command">
-                  <code>{cmd.input}</code>
-                  <div className="timeline-actions">
-                    <button
-                      className="timeline-btn"
-                      onClick={() => copyCommand(cmd)}
-                      title="Copy"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                      </svg>
-                    </button>
-                    <button
-                      className="timeline-btn"
-                      onClick={() => rerunCommand(cmd)}
-                      title="Run in terminal"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="5 3 19 12 5 21 5 3"/>
-                      </svg>
-                    </button>
+          {sessionCommands.map((cmd, i) => {
+            const hasCLI = cmd.cli_session;
+            const isExpanded = hasCLI && expandedCLI.has(cmd.cli_session.id);
+
+            return (
+              <div key={cmd.id} className="timeline-item-wrapper">
+                {/* The command itself */}
+                <div className={`timeline-item ${hasCLI ? 'timeline-item-cli' : ''}`}>
+                  <div className="timeline-line">
+                    <div
+                      className={`timeline-dot ${hasCLI ? 'timeline-dot-cli' : ''}`}
+                      style={hasCLI ? { background: cmd.cli_session.program_color } : undefined}
+                    />
+                    {(i < sessionCommands.length - 1 || (hasCLI && isExpanded)) && (
+                      <div
+                        className="timeline-connector"
+                        style={hasCLI && isExpanded ? { background: cmd.cli_session.program_color + '40' } : undefined}
+                      />
+                    )}
+                  </div>
+                  <div className="timeline-content">
+                    <div className="timeline-command">
+                      {hasCLI && (
+                        <button
+                          className="timeline-cli-toggle"
+                          onClick={() => toggleCLIExpanded(cmd.cli_session.id)}
+                          title={isExpanded ? 'Collapse' : 'Expand inputs'}
+                        >
+                          <svg
+                            width="10" height="10" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" strokeWidth="2.5"
+                            strokeLinecap="round" strokeLinejoin="round"
+                            style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+                          >
+                            <polyline points="9 18 15 12 9 6"/>
+                          </svg>
+                        </button>
+                      )}
+                      <code>{cmd.input}</code>
+                      {hasCLI && (
+                        <span
+                          className="timeline-cli-badge"
+                          style={{ background: cmd.cli_session.program_color + '20', color: cmd.cli_session.program_color, borderColor: cmd.cli_session.program_color + '40' }}
+                        >
+                          {cmd.cli_session.program_name}
+                          {cmd.cli_session.input_count > 0 && (
+                            <span className="timeline-cli-count">{cmd.cli_session.input_count}</span>
+                          )}
+                        </span>
+                      )}
+                      <div className="timeline-actions">
+                        <button
+                          className="timeline-btn"
+                          onClick={() => copyCommand(cmd.input)}
+                          title="Copy"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                          </svg>
+                        </button>
+                        <button
+                          className="timeline-btn"
+                          onClick={() => rerunCommand(cmd)}
+                          title="Run in terminal"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polygon points="5 3 19 12 5 21 5 3"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <span className="timeline-time">{formatTime(cmd.timestamp)}</span>
                   </div>
                 </div>
-                <span className="timeline-time">{formatTime(cmd.timestamp)}</span>
+
+                {/* Expanded CLI inputs */}
+                {hasCLI && isExpanded && cmd.cli_session.inputs && (
+                  <div className="timeline-cli-inputs">
+                    {cmd.cli_session.inputs.map((input: any, j: number) => (
+                      <div key={input.id} className="timeline-cli-input-item">
+                        <div className="timeline-line">
+                          <div
+                            className="timeline-cli-input-dot"
+                            style={{ borderColor: cmd.cli_session.program_color + '80' }}
+                          />
+                          {j < cmd.cli_session.inputs.length - 1 && (
+                            <div
+                              className="timeline-connector"
+                              style={{ background: cmd.cli_session.program_color + '20' }}
+                            />
+                          )}
+                        </div>
+                        <div className="timeline-content">
+                          <div className="timeline-command">
+                            <span className="timeline-cli-input-text">"{input.input}"</span>
+                            <div className="timeline-actions">
+                              <button
+                                className="timeline-btn"
+                                onClick={() => copyCommand(input.input)}
+                                title="Copy prompt"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          <span className="timeline-time">{formatTime(input.timestamp)}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {cmd.cli_session.ended_at && (
+                      <div className="timeline-cli-exit">
+                        <div className="timeline-line">
+                          <div className="timeline-cli-exit-dot" />
+                        </div>
+                        <div className="timeline-content">
+                          <span className="timeline-cli-exit-text">exited</span>
+                          <span className="timeline-time">{formatTime(cmd.cli_session.ended_at)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
           {sessionCommands.length === 0 && (
             <div className="sessions-empty">No commands recorded in this session.</div>
           )}

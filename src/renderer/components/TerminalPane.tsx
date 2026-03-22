@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import '@xterm/xterm/css/xterm.css';
 import './TerminalPane.css';
 
@@ -46,10 +47,14 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
       fontSize: 14,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       theme: theme === 'light' ? LIGHT_THEME : DARK_THEME,
+      allowProposedApi: true,
     });
 
     const fitAddon = new FitAddon();
+    const unicode11Addon = new Unicode11Addon();
     terminal.loadAddon(fitAddon);
+    terminal.loadAddon(unicode11Addon);
+    terminal.unicode.activeVersion = '11';
     terminal.open(terminalRef.current);
 
     xtermRef.current = terminal;
