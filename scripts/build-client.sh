@@ -270,40 +270,40 @@ build_app() {
         mac|darwin)
             if [ "$ARCH" = "arm64" ]; then
                 print_info "Building for macOS ARM64 (Apple Silicon)..."
-                npm run package:mac-arm64
+                npm run build:mac-arm64
             elif [ "$ARCH" = "x64" ]; then
                 print_info "Building for macOS x64 (Intel)..."
-                npm run package:mac-x64
+                npm run build:mac-x64
             elif [ "$ARCH" = "all" ]; then
                 print_info "Building for macOS (all architectures)..."
-                npm run package:mac
+                npm run build:mac
             else
                 # Detect current architecture
                 if [[ $(uname -m) == "arm64" ]]; then
-                    npm run package:mac-arm64
+                    npm run build:mac-arm64
                 else
-                    npm run package:mac-x64
+                    npm run build:mac-x64
                 fi
             fi
             ;;
         windows|win)
             print_info "Building for Windows x64..."
-            npm run package:win
+            npm run build:win
             ;;
         linux)
             print_info "Building for Linux (AppImage, deb)..."
-            npm run package:linux
+            npm run build:linux
             ;;
         all)
             print_info "Building for ALL platforms (sequentially to avoid conflicts)..."
             print_info "Step 1/4: Building macOS ARM64..."
-            npm run package:mac-arm64
+            npm run build:mac-arm64
             print_info "Step 2/4: Building macOS x64..."
-            npm run package:mac-x64
+            npm run build:mac-x64
             print_info "Step 3/4: Building Windows..."
-            npm run package:win
+            npm run build:win
             print_info "Step 4/4: Building Linux..."
-            npm run package:linux
+            npm run build:linux
             ;;
         *)
             print_error "Unknown platform: $PLATFORM"

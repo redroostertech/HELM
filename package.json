@@ -1,8 +1,16 @@
 {
   "name": "helm-terminal",
-  "version": "0.1.0",
+  "productName": "HELM",
+  "version": "1.0.0",
+  "buildNumber": "1",
+  "releaseType": "stable",
   "description": "HELM - AI-powered terminal. Powered by LANA AI.",
   "main": "dist/main/main.js",
+  "author": {
+    "name": "RedRooster Technologies Inc.",
+    "email": "info@redroostertec.com"
+  },
+  "license": "Proprietary",
   "scripts": {
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
     "dev:react": "vite --port 5173",
@@ -10,13 +18,13 @@
     "build": "npm run build:react && npm run build:electron",
     "build:react": "vite build",
     "build:electron": "tsc -p tsconfig.main.json",
-    "package": "electron-builder",
-    "package:mac": "electron-builder --mac",
-    "package:mac-arm64": "electron-builder --mac --arm64",
-    "package:mac-x64": "electron-builder --mac --x64",
-    "package:win": "electron-builder --win",
-    "package:linux": "electron-builder --linux",
-    "package:all": "electron-builder --mac --win --linux",
+    "build:client": "electron-builder -c electron-builder.client.json",
+    "build:mac": "electron-builder --mac -c electron-builder.client.json",
+    "build:mac-arm64": "electron-builder --mac --arm64 -c electron-builder.client.json",
+    "build:mac-x64": "electron-builder --mac --x64 -c electron-builder.client.json",
+    "build:win": "electron-builder --win -c electron-builder.client.json",
+    "build:linux": "electron-builder --linux -c electron-builder.client.json",
+    "build:all": "electron-builder --mac --x64 --arm64 --win --linux -c electron-builder.client.json",
     "release": "./scripts/build-client.sh",
     "start": "electron .",
     "setup:db": "./scripts/setup-database.sh",
@@ -30,11 +38,6 @@
     "education",
     "learning"
   ],
-  "author": {
-    "name": "RedRooster Technologies Inc.",
-    "email": "info@redroostertec.com"
-  },
-  "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.10.0",
     "@types/pg": "^8.11.10",
@@ -51,6 +54,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/xterm": "^5.5.0",
     "dotenv": "^17.3.1",
     "node-pty": "^1.1.0",
@@ -59,107 +63,5 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0"
-  },
-  "build": {
-    "appId": "com.redrooster.helm",
-    "productName": "HELM",
-    "copyright": "Copyright (c) 2026 RedRooster Technologies Inc.",
-    "artifactName": "HELM-${version}-${arch}.${ext}",
-    "icon": "build/icon.icns",
-    "protocols": [
-      {
-        "name": "HELM",
-        "schemes": [
-          "helm"
-        ]
-      }
-    ],
-    "publish": {
-      "provider": "github",
-      "owner": "redroostertech",
-      "repo": "HELM",
-      "releaseType": "release"
-    },
-    "mac": {
-      "category": "public.app-category.developer-tools",
-      "icon": "build/icon.icns",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "notarize": true,
-      "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "arm64",
-            "x64"
-          ]
-        }
-      ]
-    },
-    "dmg": {
-      "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "HELM",
-      "artifactName": "HELM-${version}-setup.${ext}"
-    },
-    "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
-      "category": "Development",
-      "icon": "build/icon.png"
-    },
-    "npmRebuild": false,
-    "files": [
-      "dist/**/*",
-      "package.json",
-      "node_modules/node-pty/**/*"
-    ],
-    "asarUnpack": [
-      "node_modules/node-pty/**"
-    ]
   }
 }

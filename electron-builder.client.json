@@ -1,0 +1,105 @@
+{
+  "appId": "com.redrooster.helm",
+  "productName": "HELM",
+  "copyright": "Copyright (c) 2026 RedRooster Technologies Inc.",
+  "directories": {
+    "output": "dist",
+    "buildResources": "build"
+  },
+  "artifactName": "HELM-${version}.${ext}",
+  "publish": {
+    "provider": "github",
+    "owner": "redroostertech",
+    "repo": "HELM",
+    "releaseType": "release"
+  },
+  "files": [
+    "package.json",
+    {
+      "from": "dist/main",
+      "to": "dist/main",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "dist/renderer",
+      "to": "dist/renderer",
+      "filter": ["**/*"]
+    },
+    "node_modules/node-pty/**/*",
+    "!**/{.DS_Store,.git,.hg,.svn,.gitignore,.gitattributes}",
+    "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs}"
+  ],
+  "protocols": [
+    {
+      "name": "HELM",
+      "schemes": ["helm"]
+    }
+  ],
+  "asar": true,
+  "npmRebuild": false,
+  "asarUnpack": [
+    "node_modules/node-pty/**"
+  ],
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "artifactName": "HELM-${version}-${arch}.${ext}",
+    "target": ["dmg", "zip"],
+    "icon": "build/icon.icns",
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "notarize": true
+  },
+  "win": {
+    "artifactName": "HELM-${version}.${ext}",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.png"
+  },
+  "linux": {
+    "artifactName": "HELM-${version}.${ext}",
+    "target": [
+      "AppImage",
+      "deb"
+    ],
+    "category": "Development",
+    "icon": "build/icon.png"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "HELM",
+    "artifactName": "HELM-${version}-setup.${ext}"
+  },
+  "dmg": {
+    "artifactName": "HELM-${version}-${arch}.${ext}",
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "window": {
+      "width": 540,
+      "height": 400
+    },
+    "title": "HELM ${version}"
+  }
+}
