@@ -147,9 +147,11 @@ export class CLIConversationWatcher {
   private watchConversationFile(cliSessionId: number, filePath: string): void {
     console.log(`👁️ Watching conversation file: ${filePath}`);
 
-    // Record current file size so we only read new content
-    const stats = fs.statSync(filePath);
-    this.lastReadPosition.set(filePath, stats.size);
+    // Start from 0 so we capture any content already written
+    this.lastReadPosition.set(filePath, 0);
+
+    // Process existing content immediately
+    this.readNewEntries(cliSessionId, filePath);
 
     // Poll the file for changes (more reliable than fs.watch for JSONL appends)
     const interval = setInterval(() => {
