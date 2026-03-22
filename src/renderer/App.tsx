@@ -62,7 +62,7 @@ function saveTabs(tabs: TerminalTab[], activeId: string) {
 function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>(() => loadTabs().tabs);
   const [activeTabId, setActiveTabId] = useState(() => loadTabs().activeId);
-  const [currentPath, setCurrentPath] = useState('~');
+  const [currentPath, setCurrentPath] = useState('');
   const [selectedCommand, setSelectedCommand] = useState<any>(null);
   const [explanation, setExplanation] = useState<any>(null);
   const [isExplaining, setIsExplaining] = useState(false);
