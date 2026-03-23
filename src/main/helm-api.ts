@@ -3,11 +3,11 @@ import { app } from 'electron';
 /**
  * HELM API client — connects to RedRoosterTech-Web backend.
  * Dev mode: localhost:1234
- * Production: https://redroostertec.com/helm/api
+ * Production: https://helm.lanaai.io/helm/api
  */
 
 const DEV_API_URL = 'http://localhost:1234/helm/api';
-const PROD_API_URL = 'https://redroostertec.com/helm/api';
+const PROD_API_URL = 'https://helm.lanaai.io/helm/api';
 
 function getBaseUrl(): string {
   if (process.env.HELM_API_URL) return process.env.HELM_API_URL;
@@ -162,19 +162,19 @@ export class HelmAPI {
 
   /** Get the login URL for opening in the system browser */
   getLoginUrl(): string {
-    const base = app.isPackaged ? 'https://redroostertec.com' : 'http://localhost:1234';
+    const base = app.isPackaged ? 'https://helm.lanaai.io' : 'http://localhost:1234';
     return `${base}/helm/login?callback=helm://auth/callback`;
   }
 
   /** Get the registration URL */
   getRegisterUrl(): string {
-    const base = app.isPackaged ? 'https://redroostertec.com' : 'http://localhost:1234';
+    const base = app.isPackaged ? 'https://helm.lanaai.io' : 'http://localhost:1234';
     return `${base}/helm/register?callback=helm://auth/callback`;
   }
 
   /** Get the pricing URL for upgrades */
   getPricingUrl(): string {
-    const base = app.isPackaged ? 'https://redroostertec.com' : 'http://localhost:1234';
+    const base = app.isPackaged ? 'https://helm.lanaai.io' : 'http://localhost:1234';
     return `${base}/helm/pricing`;
   }
 }
