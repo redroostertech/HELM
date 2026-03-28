@@ -14,20 +14,25 @@ export class OpenAIService implements AIService {
   private client: OpenAI;
   private model: string;
 
-  constructor(apiKey?: string, model: string = 'gpt-4o') {
+  constructor(apiKey?: string, model: string = 'auto', baseURL?: string) {
     this.apiKey = apiKey || process.env.OPENAI_API_KEY || '';
+    this.baseURL = baseURL || process.env.OPENAI_BASE_URL || undefined;
     this.client = null as any;
     this.model = model;
   }
 
   private apiKey: string;
+  private baseURL: string | undefined;
 
   private getClient(): OpenAI {
     if (!this.client) {
       if (!this.apiKey) {
         throw new Error('OpenAI API key not configured. Set OPENAI_API_KEY environment variable or pass it in.');
       }
-      this.client = new OpenAI({ apiKey: this.apiKey });
+      this.client = new OpenAI({
+        apiKey: this.apiKey,
+        ...(this.baseURL ? { baseURL: this.baseURL } : {}),
+      });
     }
     return this.client;
   }

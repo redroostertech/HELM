@@ -54,6 +54,10 @@ let db: DatabaseManager | null = null;
 let aiService: AIService | null = null;
 let licenseManager: LicenseManager | null = null;
 
+// Forge API configuration — all AI requests route through Forge
+const FORGE_API_KEY = 'rrt-burst-3f24900af81b04ba915d3fda37df147bf297d5e12444dee1a87f54fabec13e6a';
+const FORGE_BASE_URL = 'https://forge-api.lanaai.io/v1';
+
 function createAIService(settings?: any): AIService {
   const s = settings || loadSettings();
   const tier = licenseManager?.getTier() || 'free';
@@ -76,9 +80,9 @@ function createAIService(settings?: any): AIService {
     return new ProxyAIService(new HelmAPI(), token);
   }
 
-  // Priority 3: Not authenticated, no key — AI disabled
-  console.log('🧠 No API key configured');
-  return new OpenAIService('', 'gpt-4o-mini');
+  // Priority 3: Forge fallback — route through Forge gateway (no user key needed)
+  console.log('🧠 Using Forge AI gateway (forge-api.lanaai.io)');
+  return new OpenAIService(FORGE_API_KEY, 'auto', FORGE_BASE_URL);
 }
 
 /** Sync license/subscription state with the backend and notify the renderer */
