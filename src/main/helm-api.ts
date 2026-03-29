@@ -143,6 +143,12 @@ export class HelmAPI {
     });
   }
 
+  // --- Tier Configuration ---
+
+  async getTierConfig(): Promise<Record<string, { aiCallsPerMonth: number; features: string[] }>> {
+    return this.request('/config/tiers');
+  }
+
   // --- Billing ---
 
   async createCheckout(token: string, tier: string): Promise<{ checkoutUrl: string }> {

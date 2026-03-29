@@ -9,6 +9,17 @@ import { HelmAPI } from './helm-api';
 
 export type UserTier = 'free' | 'byok' | 'basic' | 'pro';
 
+export type Feature =
+  | 'commandBlocks'
+  | 'smartAutocomplete'
+  | 'sessionSearch'
+  | 'mobileAccess'
+  | 'offlineMode'
+  | 'workflows'
+  | 'crossCliMemory'
+  | 'priorityQueue'
+  | 'advancedAnalytics';
+
 export interface License {
   tier: UserTier;
   email: string | null;
@@ -26,21 +37,107 @@ export interface License {
 }
 
 const LICENSE_PATH = path.join(os.homedir(), '.helm-license.json');
+const TIER_CONFIG_CACHE_PATH = path.join(os.homedir(), '.helm-tier-config.json');
 
-const TIER_CONFIG = {
-  free:  { ai: true,  aiCallsPerMonth: 20,   usesOwnKey: false },
-  byok:  { ai: true,  aiCallsPerMonth: -1,   usesOwnKey: true  }, // unlimited
-  basic: { ai: true,  aiCallsPerMonth: 500,  usesOwnKey: false },
-  pro:   { ai: true,  aiCallsPerMonth: 2000, usesOwnKey: false },
+interface TierConfig {
+  ai: boolean;
+  aiCallsPerMonth: number; // -1 = unlimited
+  usesOwnKey: boolean;
+  features: Feature[];
+}
+
+// Local defaults — used when server config is unavailable
+const DEFAULT_TIER_CONFIG: Record<UserTier, TierConfig> = {
+  free: {
+    ai: true,
+    aiCallsPerMonth: 100,
+    usesOwnKey: false,
+    features: [],
+  },
+  byok: {
+    ai: true,
+    aiCallsPerMonth: -1,
+    usesOwnKey: true,
+    features: [],
+  },
+  basic: {
+    ai: true,
+    aiCallsPerMonth: 500,
+    usesOwnKey: false,
+    features: [
+      'commandBlocks',
+      'smartAutocomplete',
+      'sessionSearch',
+      'mobileAccess',
+      'offlineMode',
+    ],
+  },
+  pro: {
+    ai: true,
+    aiCallsPerMonth: 2000,
+    usesOwnKey: false,
+    features: [
+      'commandBlocks',
+      'smartAutocomplete',
+      'sessionSearch',
+      'mobileAccess',
+      'offlineMode',
+      'workflows',
+      'crossCliMemory',
+      'priorityQueue',
+      'advancedAnalytics',
+    ],
+  },
 };
 
 export class LicenseManager {
   private license: License;
   private api: HelmAPI;
+  private serverTierConfig: Record<string, { aiCallsPerMonth: number; features: string[] }> | null = null;
 
   constructor() {
     this.api = new HelmAPI();
     this.license = this.load();
+    this.loadCachedTierConfig();
+    this.syncTierConfig();
+  }
+
+  /** Load cached server tier config from disk */
+  private loadCachedTierConfig(): void {
+    try {
+      if (fs.existsSync(TIER_CONFIG_CACHE_PATH)) {
+        this.serverTierConfig = JSON.parse(fs.readFileSync(TIER_CONFIG_CACHE_PATH, 'utf-8'));
+      }
+    } catch {
+      this.serverTierConfig = null;
+    }
+  }
+
+  /** Fetch tier config from server and cache locally */
+  async syncTierConfig(): Promise<void> {
+    try {
+      const config = await this.api.getTierConfig();
+      this.serverTierConfig = config;
+      fs.writeFileSync(TIER_CONFIG_CACHE_PATH, JSON.stringify(config, null, 2));
+      console.log('⚙️ Tier config synced from server');
+    } catch (err: any) {
+      console.warn('⚙️ Tier config sync failed, using cached/local defaults:', err.message);
+    }
+  }
+
+  /** Resolve tier config: server first, then cached, then local defaults */
+  private getTierConfig(tier: UserTier): TierConfig {
+    const defaults = DEFAULT_TIER_CONFIG[tier];
+    if (!this.serverTierConfig || !this.serverTierConfig[tier]) {
+      return defaults;
+    }
+    const server = this.serverTierConfig[tier];
+    return {
+      ai: defaults.ai,
+      usesOwnKey: defaults.usesOwnKey,
+      aiCallsPerMonth: server.aiCallsPerMonth ?? defaults.aiCallsPerMonth,
+      features: (server.features as Feature[]) ?? defaults.features,
+    };
   }
 
   private load(): License {
@@ -106,7 +203,7 @@ export class LicenseManager {
   /** Check if user has AI access */
   canUseAI(): boolean {
     const tier = this.getTier();
-    const config = TIER_CONFIG[tier];
+    const config = this.getTierConfig(tier);
     if (!config.ai) return false;
     // BYOK = unlimited
     if (config.aiCallsPerMonth === -1) return true;
@@ -116,7 +213,38 @@ export class LicenseManager {
 
   /** Check if tier has AI feature at all */
   hasAIFeature(): boolean {
-    return TIER_CONFIG[this.getTier()].ai;
+    return this.getTierConfig(this.getTier()).ai;
+  }
+
+  /** Check if current tier has access to a specific feature */
+  hasFeature(feature: Feature): boolean {
+    return this.getTierConfig(this.getTier()).features.includes(feature);
+  }
+
+  /** Get all features available to the current tier */
+  getFeatures(): Feature[] {
+    return [...this.getTierConfig(this.getTier()).features];
+  }
+
+  /** Get full feature access map for the current tier */
+  getFeatureFlags(): Record<Feature, boolean> {
+    const allFeatures: Feature[] = [
+      'commandBlocks',
+      'smartAutocomplete',
+      'sessionSearch',
+      'mobileAccess',
+      'offlineMode',
+      'workflows',
+      'crossCliMemory',
+      'priorityQueue',
+      'advancedAnalytics',
+    ];
+    const tierFeatures = this.getTierConfig(this.getTier()).features;
+    const flags = {} as Record<Feature, boolean>;
+    for (const f of allFeatures) {
+      flags[f] = tierFeatures.includes(f);
+    }
+    return flags;
   }
 
   /** Record an AI call */
@@ -305,6 +433,9 @@ export class LicenseManager {
           // Non-critical — usage summary fetch failed, keep license/validate data
         }
 
+        // Sync tier config (limits, features) from server
+        await this.syncTierConfig();
+
         this.save();
         return true;
       }
@@ -368,9 +499,10 @@ export class LicenseManager {
     resetDate: string;
     isAuthenticated: boolean;
     lastSyncedAt: string | null;
+    features: Record<Feature, boolean>;
   } {
     const tier = this.getTier();
-    const config = TIER_CONFIG[tier];
+    const config = this.getTierConfig(tier);
     return {
       tier,
       aiEnabled: config.ai,
@@ -380,6 +512,7 @@ export class LicenseManager {
       resetDate: this.license.usageThisMonth.resetDate,
       isAuthenticated: this.isAuthenticated(),
       lastSyncedAt: this.license.lastSyncedAt,
+      features: this.getFeatureFlags(),
     };
   }
 }

@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Licensing
   licenseGet: () => ipcRenderer.invoke('license:get'),
   licenseGetUsage: () => ipcRenderer.invoke('license:getUsage'),
+  licenseGetFeatures: () => ipcRenderer.invoke('license:getFeatures'),
+  licenseHasFeature: (feature: string) => ipcRenderer.invoke('license:hasFeature', feature),
   licenseActivate: (email: string, licenseKey: string) =>
     ipcRenderer.invoke('license:activate', email, licenseKey),
   licenseDeactivate: () => ipcRenderer.invoke('license:deactivate'),
@@ -152,6 +154,8 @@ export interface ElectronAPI {
 
   licenseGet: () => Promise<any>;
   licenseGetUsage: () => Promise<any>;
+  licenseGetFeatures: () => Promise<Record<string, boolean>>;
+  licenseHasFeature: (feature: string) => Promise<boolean>;
   licenseActivate: (email: string, licenseKey: string) => Promise<{ success: boolean; error?: string }>;
   licenseDeactivate: () => Promise<boolean>;
 

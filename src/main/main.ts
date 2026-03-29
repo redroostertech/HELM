@@ -35,7 +35,6 @@ import { DatabaseManager } from './database';
 import { AIService } from './ai-service';
 import { OpenAIService } from './openai-service';
 import { AnthropicService } from './anthropic-service';
-import { ProxyAIService } from './proxy-ai-service';
 import { HelmAPI } from './helm-api';
 import { LicenseManager } from './licensing';
 
@@ -62,26 +61,22 @@ function createAIService(settings?: any): AIService {
   const s = settings || loadSettings();
   const tier = licenseManager?.getTier() || 'free';
 
-  // Priority 1: User has their own API key (BYOK) — call providers directly
-  if (s.aiProvider === 'anthropic' && s.anthropicApiKey) {
-    console.log('🧠 Using Anthropic (Claude) API — user key (BYOK)');
-    return new AnthropicService(s.anthropicApiKey, s.anthropicModel);
+  // BYOK users — call their selected provider directly with their own key
+  if (tier === 'byok') {
+    if (s.aiProvider === 'anthropic' && s.anthropicApiKey) {
+      console.log('🧠 Using Anthropic (Claude) API — user key (BYOK)');
+      return new AnthropicService(s.anthropicApiKey, s.anthropicModel);
+    }
+    if (s.aiProvider === 'openai' && s.openaiApiKey) {
+      console.log('🧠 Using OpenAI API — user key (BYOK)');
+      return new OpenAIService(s.openaiApiKey, s.openaiModel);
+    }
+    // BYOK user hasn't configured a key yet — fall through to Forge
+    console.warn('🧠 BYOK user has no API key configured — falling back to Forge');
   }
 
-  if (s.aiProvider === 'openai' && s.openaiApiKey) {
-    console.log('🧠 Using OpenAI API — user key (BYOK)');
-    return new OpenAIService(s.openaiApiKey, s.openaiModel);
-  }
-
-  // Priority 2: Authenticated user (Free/Basic/Pro) — proxy through backend
-  const token = licenseManager?.getToken();
-  if (token) {
-    console.log(`🧠 Using AI proxy — HELM ${tier} tier (server-side)`);
-    return new ProxyAIService(new HelmAPI(), token);
-  }
-
-  // Priority 3: Forge fallback — route through Forge gateway (no user key needed)
-  console.log('🧠 Using Forge AI gateway (forge-api.lanaai.io)');
+  // All other tiers (Free/Basic/Pro) — route through Forge gateway
+  console.log(`🧠 Using Forge AI gateway — HELM ${tier} tier (forge-api.lanaai.io)`);
   return new OpenAIService(FORGE_API_KEY, 'auto', FORGE_BASE_URL);
 }
 
@@ -275,16 +270,12 @@ function setupIPCHandlers() {
     }
   };
 
-  const isUsingProxy = () => aiService instanceof ProxyAIService;
-
   const trackUsage = (type: string) => {
     licenseManager?.recordAICall();
-    // Only report to backend separately for BYOK users (proxy already tracks on the server)
-    if (!isUsingProxy()) {
-      const s = loadSettings();
-      const model = s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel;
-      licenseManager?.recordUsageToBackend(type, model);
-    }
+    // Report usage to backend for all tiers
+    const s = loadSettings();
+    const model = s.aiProvider === 'anthropic' ? s.anthropicModel : s.openaiModel;
+    licenseManager?.recordUsageToBackend(type, model);
   };
 
   ipcMain.handle('ai:ask', async (_, question: string, context?: string) => {
@@ -466,6 +457,14 @@ function setupIPCHandlers() {
 
   ipcMain.handle('license:getUsage', async () => {
     return licenseManager?.getUsageSummary() || null;
+  });
+
+  ipcMain.handle('license:getFeatures', async () => {
+    return licenseManager?.getFeatureFlags() || {};
+  });
+
+  ipcMain.handle('license:hasFeature', async (_, feature: string) => {
+    return licenseManager?.hasFeature(feature as any) || false;
   });
 
   ipcMain.handle('license:activate', async (_, email: string, licenseKey: string) => {

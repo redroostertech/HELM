@@ -65,6 +65,7 @@
 3. **Learning-focused** — explain pane, bookmarks, lessons
 4. **AI-agnostic** — any provider, including local models
 5. **No mandatory login for terminal features**
+6. **Mobile terminal access** — interact with your live desktop terminal sessions from your phone over LAN/VPN (no competitor offers this)
 
 ---
 
@@ -87,6 +88,7 @@
 - **tmux support is non-negotiable** for power users (Warp's biggest gap)
 - **Credit/pricing transparency matters** — opaque systems erode trust
 - **Cross-platform is expected** — macOS-only limits market by ~60%
+- **Mobile access is an untapped gap** — no terminal lets you interact with desktop sessions from your phone; Termius only does SSH to remote servers
 
 ---
 
@@ -169,6 +171,60 @@ Native tmux support with AI awareness across panes and sessions.
 - Adding AI awareness on top makes HELM the only terminal that understands multiplexed workflows
 
 **Impact:** High — captures power user segment, major competitive differentiator vs. Warp.
+
+### Mobile Terminal Access (v1.3)
+Access and interact with your HELM terminal sessions from any mobile device on the same network or VPN. Your session follows you — no laptop required.
+
+**How it works:**
+HELM desktop runs a lightweight WebSocket server on a configurable port. A mobile client (PWA or native app) connects over LAN or VPN, authenticates, and presents your active terminal sessions in a touch-optimized interface. This is not SSH to a remote server — it's direct access to your live HELM desktop sessions.
+
+**Core Features:**
+- [ ] WebSocket server embedded in HELM desktop (configurable port, disabled by default)
+- [ ] Device pairing via QR code scan or 6-digit PIN from desktop
+- [ ] TLS encryption for all traffic between devices (self-signed cert generated on first use)
+- [ ] View all open tabs and active sessions from mobile
+- [ ] Read terminal output in real-time (streamed, not polled)
+- [ ] Send commands from mobile with a touch-optimized input bar
+- [ ] Common command shortcuts / quick-action buttons (Ctrl+C, arrow keys, Tab, etc.)
+- [ ] Session history browsing from mobile (read-only view of past sessions)
+
+**Authentication & Security:**
+- [ ] First-connect pairing (QR code or PIN) — device is remembered after initial pairing
+- [ ] Paired device management (view, rename, revoke from desktop)
+- [ ] Optional session-level permissions (read-only vs. interactive per paired device)
+- [ ] Auto-disconnect after configurable idle timeout
+- [ ] All traffic encrypted via TLS — no plaintext commands over the network
+- [ ] Connection limited to LAN/VPN by default (no internet exposure unless user explicitly configures port forwarding)
+
+**Mobile UX:**
+- [ ] Touch-optimized terminal renderer (larger tap targets, pinch-to-zoom, horizontal scroll)
+- [ ] Swipe between tabs/sessions
+- [ ] Smart keyboard with common CLI keys (Tab, Ctrl, Esc, pipe, arrow keys) above the standard keyboard
+- [ ] Notification support — alert on long-running command completion ("npm build finished")
+- [ ] Quick actions: copy last output, re-run last command, send Ctrl+C
+- [ ] Dark/light theme matching desktop preference
+
+**Progressive Web App (PWA) — Phase 1:**
+- [ ] Ship as PWA first — no app store approval needed, works on iOS and Android immediately
+- [ ] Add to Home Screen support for app-like experience
+- [ ] Service worker for offline access to session history (read-only)
+- [ ] Responsive layout optimized for phone and tablet
+
+**Native App — Phase 2 (v1.5+):**
+- [ ] React Native app for iOS and Android
+- [ ] Push notifications for command completion and error alerts
+- [ ] Background connection persistence
+- [ ] Biometric auth (Face ID / fingerprint) to unlock paired sessions
+- [ ] Widget support (iOS/Android) — glanceable view of running processes
+
+**Why this matters:**
+- **No terminal offers this.** Termius ($10/mo) does SSH to remote servers — it doesn't let you interact with your local desktop terminal sessions from your phone
+- Developers frequently step away from their desk while builds, deployments, or tests are running — checking status currently requires going back to the laptop
+- DevOps/SRE users monitoring long-running processes (migrations, data jobs) get real value from mobile access
+- Combined with HELM's session persistence and command blocks, the mobile view is immediately useful — not just a raw shell, but structured, readable output
+- Positions HELM as a cross-device terminal experience, not just a desktop app
+
+**Impact:** High — unique differentiator with no direct competition. Moves HELM from "terminal app" to "terminal platform."
 
 ---
 
@@ -298,19 +354,22 @@ Let users bring their own API keys for all AI features.
 
 ## Pricing Strategy
 
-| Tier | Price | Target | Includes |
-|------|-------|--------|----------|
-| **Free** | $0 | Individual learners | Terminal + sessions + history + 20 AI calls/mo, no login required |
-| **Pro** | $12/mo | Professional developers | Unlimited AI, BYOK, CLI conversation capture, session search, workflows, autocomplete |
-| **Team** | $25/user/mo | Dev teams (5-50) | Shared workspaces, collaborative terminals, SSH manager, admin controls |
-| **Enterprise** | Custom | Large orgs (50+) | SSO, ZDR, audit logs, on-prem AI, dedicated support |
+| Tier | Price | Includes |
+|------|-------|----------|
+| **Free** | $0/mo | 10 AI calls/mo, Chat & Explain modes, GPT-4o-mini, usage dashboard |
+| **BYOK** | $5.99/mo ($2.99 launch) | Unlimited AI calls, use your own API key, all modes (Chat, Explain, Suggest), any OpenAI/Anthropic model |
+| **Basic** | $9.99/mo | 500 AI calls/mo, all modes (Chat, Explain, Suggest), GPT-4o included, usage dashboard, priority support, Command Blocks, Smart Autocomplete, Session Search, Mobile Terminal Access (PWA) |
+| **Pro** | $12.99/mo | 2,000 AI calls/mo, all modes + priority queue, GPT-4o + Claude included, advanced usage analytics, priority support, workflows, cross-CLI memory |
+| **Team** | $25/user/mo | Everything in Pro + shared workspaces, collaborative terminals, SSH manager, admin controls |
+| **Enterprise** | Custom | Everything in Team + SSO, ZDR, audit logs, on-prem AI, dedicated support |
 
 ### Pricing Principles
 1. **No mandatory login for free tier** — terminal features always work without an account
-2. **BYOK as a Pro feature** — users who bring keys still pay for platform value
-3. **Transparent limits** — no opaque credits, clear call counts
-4. **Price below Warp ($20) and Cursor ($20)** — attract switchers at $12/mo
-5. **Team tier below Cursor Teams ($40) and Warp Business ($50)**
+2. **BYOK as its own tier** — $5.99/mo (launch: $2.99) for users who bring their own keys and want unlimited AI with any model
+3. **Basic is the popular tier** — $9.99/mo gets Phase 1 features (Command Blocks, Autocomplete, Session Search, Mobile Access) + 500 AI calls with GPT-4o
+4. **Transparent limits** — no opaque credits, clear call counts per tier
+5. **Price below Warp ($20) and Cursor ($20)** — Pro at $12.99/mo attracts switchers
+6. **Team tier below Cursor Teams ($40) and Warp Business ($50)**
 
 ---
 
