@@ -414,7 +414,14 @@ export class PTYManager {
       return;
     }
 
-    const cleaned = trimmedCommand.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').trim();
+    const cleaned = trimmedCommand
+      .replace(/\x1b\[[0-9;?]*[a-zA-Z@`]/g, '')  // CSI sequences
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')  // OSC sequences
+      .replace(/\x1b[()#][A-Za-z0-9]/g, '')  // Charset sequences
+      .replace(/\x1b[>=<78DEHM]/g, '')  // Other escape sequences
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')  // Control chars
+      .replace(/\x1b/g, '')  // Any remaining ESC
+      .trim();
     if (!cleaned || cleaned.length < 2) {
       instance.currentCommand = '';
       return;
