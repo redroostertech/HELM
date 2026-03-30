@@ -7,6 +7,13 @@
   transition: opacity 0.2s;
 }
 
+.terminal-pane-inner {
+  position: relative;
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
 .terminal-loading {
   position: absolute;
   inset: 0;

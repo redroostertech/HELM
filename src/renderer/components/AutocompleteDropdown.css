@@ -1,0 +1,142 @@
+/* ── Autocomplete Dropdown ──────────────────────────────────────────── */
+
+.autocomplete-dropdown {
+  position: absolute;
+  z-index: 1000;
+  min-width: 320px;
+  max-width: 500px;
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #252526;
+  border: 1px solid #454545;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.autocomplete-dropdown.light {
+  background: #f8f8f8;
+  border-color: #ccc;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Items ───────────────────────────────────────────────────────────── */
+
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #ccc;
+  transition: background 0.08s;
+}
+
+.autocomplete-dropdown.light .autocomplete-item {
+  color: #333;
+}
+
+.autocomplete-item.selected {
+  background: #094771;
+  color: #fff;
+}
+
+.autocomplete-dropdown.light .autocomplete-item.selected {
+  background: #0060c0;
+  color: #fff;
+}
+
+.autocomplete-item:hover:not(.selected) {
+  background: #2a2d2e;
+}
+
+.autocomplete-dropdown.light .autocomplete-item:hover:not(.selected) {
+  background: #e8e8e8;
+}
+
+/* ── Icon ────────────────────────────────────────────────────────────── */
+
+.autocomplete-icon {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+}
+
+/* ── Label ───────────────────────────────────────────────────────────── */
+
+.autocomplete-label {
+  flex-shrink: 0;
+  font-weight: 600;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.autocomplete-item.selected .autocomplete-label {
+  color: #fff;
+}
+
+/* ── Description ─────────────────────────────────────────────────────── */
+
+.autocomplete-desc {
+  flex: 1;
+  color: #888;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 300;
+  margin-left: 4px;
+}
+
+.autocomplete-item.selected .autocomplete-desc {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.autocomplete-dropdown.light .autocomplete-desc {
+  color: #999;
+}
+
+.autocomplete-dropdown.light .autocomplete-item.selected .autocomplete-desc {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Tab hint ────────────────────────────────────────────────────────── */
+
+.autocomplete-hint {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+}
+
+.autocomplete-dropdown.light .autocomplete-hint {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────── */
+
+.autocomplete-footer {
+  display: flex;
+  gap: 12px;
+  padding: 4px 10px;
+  border-top: 1px solid #333;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #666;
+}
+
+.autocomplete-dropdown.light .autocomplete-footer {
+  border-top-color: #ddd;
+  color: #999;
+}

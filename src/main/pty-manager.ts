@@ -32,8 +32,14 @@ export class PTYManager {
   private instances: Map<string, PTYInstance> = new Map();
   private zshEnvDir: string;
   private cliRegistry: CLIProgram[];
-  private cliWatcher: CLIConversationWatcher;
+  public cliWatcher: CLIConversationWatcher;
   private hasReattached = false;
+  private cliStatusCallbacks: Array<(tabId: string, active: boolean, programName?: string) => void> = [];
+
+  /** Register callback for CLI program start/stop events */
+  onCLIStatus(callback: (tabId: string, active: boolean, programName?: string) => void): void {
+    this.cliStatusCallbacks.push(callback);
+  }
 
   constructor(private db: DatabaseManager, customRegistry?: CLIProgram[]) {
     this.cliWatcher = new CLIConversationWatcher(db);
@@ -296,6 +302,7 @@ export class PTYManager {
     };
 
     console.log(`🔌 CLI detected: ${program.name} in tab ${tabId}`);
+    for (const cb of this.cliStatusCallbacks) { try { cb(tabId, true, program.name); } catch {} }
 
     // Create DB record async, then start the file watcher
     this.db.createCLISession(
@@ -325,6 +332,7 @@ export class PTYManager {
 
     const cli = instance.activeCLI;
     console.log(`🔌 CLI exited: ${cli.program.name} (session ${cli.cliSessionId}) in tab ${tabId}`);
+    for (const cb of this.cliStatusCallbacks) { try { cb(tabId, false, cli.program.name); } catch {} }
 
     // Stop watching conversation files
     this.cliWatcher.stopWatching(cli.cliSessionId);

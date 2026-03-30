@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0a0a0a">
+  <title>HELM Remote</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #1a1a1a;
+      --surface2: #222;
+      --border: #333;
+      --text: #e0e0e0;
+      --text-dim: #888;
+      --accent: #4fc3f7;
+      --accent-dim: rgba(79, 195, 247, 0.15);
+      --danger: #e55;
+      --green: #4ec9b0;
+      --radius: 12px;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+
+    /* ── Screens ─────────────────────── */
+    .screen { display: none; height: 100%; flex-direction: column; }
+    .screen.active { display: flex; }
+
+    /* ── Pairing Screen ──────────────── */
+    #pairingScreen {
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+
+    .pair-logo-icon {
+      width: 80px;
+      height: 80px;
+      margin-bottom: 16px;
+      border-radius: 16px;
+    }
+
+    .pair-logo {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .pair-subtitle {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-bottom: 40px;
+    }
+
+    .pin-label {
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-bottom: 16px;
+    }
+
+    .pin-inputs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .pin-inputs input {
+      width: 44px;
+      height: 56px;
+      text-align: center;
+      font-size: 24px;
+      font-weight: 600;
+      font-family: 'Menlo', 'SF Mono', monospace;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .pin-inputs input:focus {
+      border-color: var(--accent);
+    }
+
+    .pair-btn {
+      width: 100%;
+      max-width: 300px;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 10px;
+      background: #2a6cb6;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.3px;
+      transition: background 0.15s;
+    }
+
+    .pair-btn:active {
+      background: #1e5a9e;
+    }
+
+    .pair-btn:disabled {
+      opacity: 0.4;
+      background: #555;
+      color: #999;
+    }
+
+    .pair-error {
+      color: var(--danger);
+      font-size: 13px;
+      margin-top: 12px;
+      min-height: 20px;
+    }
+
+    /* ── Terminal Screen ──────────────── */
+    #terminalScreen {
+      position: relative;
+    }
+
+    .term-header {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      padding-top: max(8px, env(safe-area-inset-top, 8px));
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .term-header-brand {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .tab-select {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+
+    .disconnect-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .disconnect-btn:hover {
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+
+    /* Terminal output — xterm.js container */
+    .term-output {
+      flex: 1;
+      overflow: hidden;
+      padding: 0;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-all;
+      background: var(--bg);
+    }
+
+    /* Smart keyboard bar */
+    .key-bar {
+      display: flex;
+      gap: 4px;
+      padding: 6px 8px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      overflow-x: auto;
+      flex-shrink: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .key-bar::-webkit-scrollbar { display: none; }
+
+    .key-btn {
+      flex-shrink: 0;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 12px;
+      font-family: 'Menlo', 'SF Mono', monospace;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .key-btn:active {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+    }
+
+    .key-btn.accent {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Command input */
+    .cmd-input-bar {
+      display: flex;
+      gap: 8px;
+      padding: 8px;
+      padding-bottom: max(8px, var(--safe-bottom));
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .cmd-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-family: 'Menlo', 'SF Mono', monospace;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .cmd-input:focus {
+      border-color: var(--accent);
+    }
+
+    .cmd-send {
+      width: 44px;
+      height: 44px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #000;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .cmd-send:active {
+      opacity: 0.7;
+    }
+
+    /* ── Connection status ────────────── */
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
+    }
+
+    .status-dot.disconnected {
+      background: var(--danger);
+    }
+
+    /* ── Loading spinner ──────────────── */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 20px;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* CLI conversation overlay */
+    .cli-overlay {
+      position: absolute;
+      top: 44px;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg);
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .cli-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cli-program-badge {
+      background: #c07020;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .cli-thinking-label {
+      font-size: 12px;
+      color: var(--accent);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 1; }
+    }
+
+    .cli-toggle-btn {
+      margin-left: auto;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .cli-messages {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 12px;
+    }
+
+    .cli-msg {
+      margin-bottom: 16px;
+    }
+
+    .cli-msg-role {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .cli-msg-role.user {
+      color: var(--accent);
+    }
+
+    .cli-msg-role.assistant {
+      color: #c07020;
+    }
+
+    .cli-msg-content {
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Pairing Screen -->
+  <div id="pairingScreen" class="screen active">
+    <img class="pair-logo-icon" src="/helm-logo.png" alt="HELM">
+    <div class="pair-logo">HELM</div>
+    <div class="pair-subtitle">Remote Terminal Access</div>
+    <div class="pin-label">Enter the 6-digit PIN shown on your desktop</div>
+    <div class="pin-inputs" id="pinInputs">
+      <input type="tel" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+      <input type="tel" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+      <input type="tel" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+      <input type="tel" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+      <input type="tel" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+      <input type="tel" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+    </div>
+    <button id="pairBtn" class="pair-btn" disabled>Connect</button>
+    <div id="pairError" class="pair-error"></div>
+  </div>
+
+  <!-- Terminal Screen -->
+  <div id="terminalScreen" class="screen">
+    <div class="term-header">
+      <span class="term-header-brand">HELM</span>
+      <div id="statusDot" class="status-dot"></div>
+      <select id="tabSelect" class="tab-select">
+        <option value="">No tabs</option>
+      </select>
+      <button id="disconnectBtn" class="disconnect-btn" title="Disconnect">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="termOutput" class="term-output"></div>
+
+    <!-- CLI conversation overlay (shown when Claude/Codex is active) -->
+    <div id="cliOverlay" class="cli-overlay" style="display:none">
+      <div class="cli-header">
+        <span id="cliProgramName" class="cli-program-badge">Claude</span>
+        <span class="cli-thinking-label" id="cliThinking" style="display:none">Thinking...</span>
+        <button id="cliToggleTerminal" class="cli-toggle-btn">Show Terminal</button>
+      </div>
+      <div id="cliMessages" class="cli-messages"></div>
+    </div>
+
+    <div class="key-bar">
+      <button class="key-btn accent" data-key="1">1</button>
+      <button class="key-btn accent" data-key="2">2</button>
+      <button class="key-btn accent" data-key="3">3</button>
+      <button class="key-btn" data-key="y">y</button>
+      <button class="key-btn" data-key="n">n</button>
+      <button class="key-btn" data-key="\r">Enter</button>
+      <button class="key-btn" data-key="\t">Tab</button>
+      <button class="key-btn" data-key="\x03">Ctrl+C</button>
+      <button class="key-btn" data-key="\x04">Ctrl+D</button>
+      <button class="key-btn" data-key="\x1a">Ctrl+Z</button>
+      <button class="key-btn" data-key="\x1b[A">Up</button>
+      <button class="key-btn" data-key="\x1b[B">Down</button>
+      <button class="key-btn" data-key="\x1b[D">Left</button>
+      <button class="key-btn" data-key="\x1b[C">Right</button>
+      <button class="key-btn" data-key="\x1b">Esc</button>
+      <button class="key-btn" data-key="|">|</button>
+      <button class="key-btn" data-key=">">&gt;</button>
+      <button class="key-btn" data-key="<">&lt;</button>
+      <button class="key-btn" data-key="~">~</button>
+      <button class="key-btn" data-key="/">/</button>
+      <button class="key-btn" data-key="\x0c">Ctrl+L</button>
+    </div>
+
+    <div class="cmd-input-bar">
+      <input id="cmdInput" class="cmd-input" type="text" placeholder="Enter command..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+      <button id="cmdSend" class="cmd-send">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // ── State ──────────────────────────
+    let ws = null;
+    let deviceId = localStorage.getItem('helm-device-id');
+    let currentTab = null;
+    let reconnectTimer = null;
+
+    // ── DOM refs ──────────────────────
+    const pairingScreen = document.getElementById('pairingScreen');
+    const terminalScreen = document.getElementById('terminalScreen');
+    const pinInputs = document.querySelectorAll('#pinInputs input');
+    const pairBtn = document.getElementById('pairBtn');
+    const pairError = document.getElementById('pairError');
+    const termOutput = document.getElementById('termOutput');
+    const tabSelect = document.getElementById('tabSelect');
+    const cmdInput = document.getElementById('cmdInput');
+    const cmdSend = document.getElementById('cmdSend');
+    const statusDot = document.getElementById('statusDot');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+
+    // ── PIN input handling ────────────
+    pinInputs.forEach((input, idx) => {
+      input.addEventListener('input', (e) => {
+        const val = e.target.value.replace(/\D/g, '');
+        e.target.value = val.slice(0, 1);
+        if (val && idx < pinInputs.length - 1) {
+          pinInputs[idx + 1].focus();
+        }
+        checkPIN();
+      });
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !e.target.value && idx > 0) {
+          pinInputs[idx - 1].focus();
+          pinInputs[idx - 1].value = '';
+          checkPIN();
+        }
+      });
+
+      // Handle paste
+      input.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+        for (let i = 0; i < Math.min(text.length, pinInputs.length); i++) {
+          pinInputs[i].value = text[i];
+        }
+        const focusIdx = Math.min(text.length, pinInputs.length - 1);
+        pinInputs[focusIdx].focus();
+        checkPIN();
+      });
+    });
+
+    function checkPIN() {
+      const pin = getPin();
+      pairBtn.disabled = pin.length !== 6;
+      // Clear any previous error when user starts typing
+      pairError.textContent = '';
+    }
+
+    function getPin() {
+      return Array.from(pinInputs).map(i => i.value).join('');
+    }
+
+    // ── Connect ───────────────────────
+    pairBtn.addEventListener('click', () => {
+      const pin = getPin();
+      pairError.textContent = 'Connecting with PIN: ' + pin + '...';
+      console.log('Connect clicked, PIN:', pin, 'btn disabled:', pairBtn.disabled);
+      connect(pin);
+    });
+
+    // Auto-reconnect if we have a stored deviceId
+    if (deviceId) {
+      connect(null);
+    }
+
+    function connect(pin) {
+      // Close any existing non-open connection
+      if (ws) {
+        if (ws.readyState === WebSocket.OPEN) return;
+        try { ws.close(); } catch {}
+        ws = null;
+      }
+
+      const proto = 'wss';
+      const host = location.host;
+      const url = `${proto}://${host}`;
+      pairError.textContent = 'Connecting to ' + url + '...';
+      console.log('WebSocket connecting to:', url);
+
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        pairError.textContent = 'WebSocket error: ' + e.message;
+        console.error('WebSocket constructor error:', e);
+        return;
+      }
+
+      ws.onopen = () => {
+        console.log('WebSocket open, sending auth');
+        pairError.textContent = 'Authenticating...';
+        const authMsg = { type: 'auth' };
+        if (pin) {
+          authMsg.pin = pin;
+          authMsg.deviceName = getDeviceName();
+        } else if (deviceId) {
+          authMsg.deviceId = deviceId;
+          authMsg.deviceName = getDeviceName();
+        }
+        ws.send(JSON.stringify(authMsg));
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        handleMessage(msg);
+      };
+
+      ws.onclose = (event) => {
+        statusDot.classList.add('disconnected');
+        if (event.code === 4001) {
+          // Device revoked
+          localStorage.removeItem('helm-device-id');
+          deviceId = null;
+          showScreen('pairing');
+          pairError.textContent = 'Device was revoked. Please pair again.';
+        } else if (deviceId && event.code !== 4002) {
+          // Attempt reconnect after 3s
+          reconnectTimer = setTimeout(() => connect(null), 3000);
+        }
+      };
+
+      ws.onerror = () => {
+        pairError.textContent = 'Connection failed — check network';
+        // onclose will fire after this
+      };
+    }
+
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'authResult':
+          if (msg.success) {
+            deviceId = msg.deviceId;
+            localStorage.setItem('helm-device-id', deviceId);
+            showScreen('terminal');
+            statusDot.classList.remove('disconnected');
+            // Request tab list
+            ws.send(JSON.stringify({ type: 'getTabs' }));
+          } else {
+            // If auto-reconnect failed, clear stored device and don't show error
+            if (deviceId && !getPin()) {
+              localStorage.removeItem('helm-device-id');
+              deviceId = null;
+              pairError.textContent = '';
+            } else {
+              pairError.textContent = msg.error || 'Pairing failed';
+            }
+            clearPinInputs();
+          }
+          break;
+
+        case 'tabs':
+          updateTabs(msg.tabs || []);
+          break;
+
+        case 'subscribed':
+          currentTab = msg.tabId;
+          if (term) term.clear();
+          break;
+
+        case 'output':
+          appendOutput(msg.data);
+          break;
+
+        case 'cliStatus':
+          handleCLIStatus(msg.active, msg.programName);
+          break;
+
+        case 'cliEvent':
+          handleCLIConversation(msg.event);
+          break;
+
+        case 'pong':
+          break;
+      }
+    }
+
+    // ── CLI conversation handling ─────
+    const cliOverlay = document.getElementById('cliOverlay');
+    const cliMessages = document.getElementById('cliMessages');
+    const cliProgramName = document.getElementById('cliProgramName');
+    const cliThinking = document.getElementById('cliThinking');
+    const cliToggleTerminal = document.getElementById('cliToggleTerminal');
+    let cliActive = false;
+    let showingTerminal = false;
+
+    cliToggleTerminal.addEventListener('click', () => {
+      showingTerminal = !showingTerminal;
+      cliOverlay.style.display = showingTerminal ? 'none' : 'flex';
+      cliToggleTerminal.textContent = showingTerminal ? 'Show Chat' : 'Show Terminal';
+    });
+
+    function handleCLIStatus(active, programName) {
+      cliActive = active;
+      if (active) {
+        cliProgramName.textContent = programName || 'CLI';
+        cliOverlay.style.display = showingTerminal ? 'none' : 'flex';
+        cliThinking.style.display = 'inline';
+        cliMessages.innerHTML = '';
+      } else {
+        cliOverlay.style.display = 'none';
+        showingTerminal = false;
+      }
+    }
+
+    function handleCLIConversation(event) {
+      if (!cliActive) return;
+
+      if (event.type === 'user_input') {
+        cliThinking.style.display = 'inline';
+        addCLIMessage('user', event.content);
+      } else if (event.type === 'assistant_response') {
+        cliThinking.style.display = 'none';
+        addCLIMessage('assistant', event.content);
+      }
+    }
+
+    function addCLIMessage(role, content) {
+      const msg = document.createElement('div');
+      msg.className = 'cli-msg';
+      msg.innerHTML = `
+        <div class="cli-msg-role ${role}">${role === 'user' ? 'You' : cliProgramName.textContent}</div>
+        <div class="cli-msg-content">${escapeHtml(content)}</div>
+      `;
+      cliMessages.appendChild(msg);
+      cliMessages.scrollTop = cliMessages.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // ── Terminal output ───────────────
+    // Simple ANSI-to-text stripper for display
+    // ── xterm.js terminal emulator ──
+    let term = null;
+    let fitAddon = null;
+
+    function initTerminal() {
+      if (term) return;
+      term = new Terminal({
+        cursorBlink: true,
+        fontSize: 11,
+        fontFamily: "'Menlo', 'SF Mono', 'Cascadia Code', monospace",
+        theme: {
+          background: '#0a0a0a',
+          foreground: '#d4d4d4',
+          cursor: '#4fc3f7',
+          selectionBackground: 'rgba(79, 195, 247, 0.3)',
+        },
+        scrollback: 5000,
+        convertEol: false,
+      });
+      fitAddon = new FitAddon.FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(termOutput);
+      // Delay fit to ensure container has final size
+      setTimeout(() => fitAddon.fit(), 100);
+      setTimeout(() => fitAddon.fit(), 500);
+
+      // Resize on orientation change or window resize
+      window.addEventListener('resize', () => {
+        if (fitAddon) {
+          fitAddon.fit();
+          // Notify PTY of new dimensions
+          if (ws && ws.readyState === WebSocket.OPEN && currentTab && term) {
+            ws.send(JSON.stringify({ type: 'resize', tabId: currentTab, cols: term.cols, rows: term.rows }));
+          }
+        }
+      });
+
+      // Forward user keystrokes to PTY (for interactive TUI apps)
+      term.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN && currentTab) {
+          ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data }));
+        }
+      });
+    }
+
+    function appendOutput(data) {
+      if (!term) initTerminal();
+      term.write(data);
+    }
+
+    // ── Tabs ──────────────────────────
+    function updateTabs(tabs) {
+      tabSelect.innerHTML = '';
+      if (tabs.length === 0) {
+        tabSelect.innerHTML = '<option value="">No tabs</option>';
+        return;
+      }
+      tabs.forEach(tab => {
+        const opt = document.createElement('option');
+        opt.value = tab.id;
+        opt.textContent = tab.label + (tab.description ? ' - ' + tab.description : '');
+        tabSelect.appendChild(opt);
+      });
+
+      // Auto-subscribe to first tab if none selected
+      if (!currentTab && tabs.length > 0) {
+        subscribeToTab(tabs[0].id);
+        tabSelect.value = tabs[0].id;
+      }
+    }
+
+    tabSelect.addEventListener('change', (e) => {
+      if (e.target.value) {
+        subscribeToTab(e.target.value);
+      }
+    });
+
+    function subscribeToTab(tabId) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'subscribe', tabId }));
+      }
+    }
+
+    // ── Command input ─────────────────
+    cmdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        sendCommand();
+      }
+    });
+
+    cmdSend.addEventListener('click', sendCommand);
+
+    function sendCommand() {
+      const cmd = cmdInput.value;
+      if (!cmd && !currentTab) return;
+
+      if (ws && ws.readyState === WebSocket.OPEN && currentTab) {
+        // Single character inputs (1, 2, 3, y, n, etc.) send raw without Enter
+        // This handles TUI prompts like Claude Code's selection menus
+        if (cmd.length === 1 && /^[0-9a-zA-Z]$/.test(cmd)) {
+          ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: cmd }));
+        } else {
+          // Multi-character: send with Enter
+          ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: cmd + '\r' }));
+        }
+        cmdInput.value = '';
+      }
+    }
+
+    // ── Key bar buttons ───────────────
+    document.querySelectorAll('.key-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const key = btn.getAttribute('data-key');
+        if (ws && ws.readyState === WebSocket.OPEN && currentTab) {
+          ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: key }));
+        }
+      });
+    });
+
+    // ── Disconnect ────────────────────
+    disconnectBtn.addEventListener('click', () => {
+      if (ws) ws.close();
+      localStorage.removeItem('helm-device-id');
+      deviceId = null;
+      currentTab = null;
+      showScreen('pairing');
+      clearPinInputs();
+      pairError.textContent = '';
+    });
+
+    // ── Screen management ─────────────
+    function showScreen(name) {
+      pairingScreen.classList.toggle('active', name === 'pairing');
+      terminalScreen.classList.toggle('active', name === 'terminal');
+      if (name === 'pairing') {
+        pairError.textContent = '';
+      }
+    }
+
+    function clearPinInputs() {
+      pinInputs.forEach(i => { i.value = ''; });
+      pairBtn.disabled = true;
+      pinInputs[0].focus();
+    }
+
+    // ── Helpers ───────────────────────
+    function getDeviceName() {
+      const ua = navigator.userAgent;
+      if (/iPhone/.test(ua)) return 'iPhone';
+      if (/iPad/.test(ua)) return 'iPad';
+      if (/Android/.test(ua)) return 'Android';
+      return 'Mobile Device';
+    }
+
+    // ── Keepalive ping ────────────────
+    setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 30000);
+  </script>
+</body>
+</html>

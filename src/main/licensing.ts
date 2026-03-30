@@ -119,9 +119,8 @@ export class LicenseManager {
       const config = await this.api.getTierConfig();
       this.serverTierConfig = config;
       fs.writeFileSync(TIER_CONFIG_CACHE_PATH, JSON.stringify(config, null, 2));
-      console.log('⚙️ Tier config synced from server');
-    } catch (err: any) {
-      console.warn('⚙️ Tier config sync failed, using cached/local defaults:', err.message);
+    } catch {
+      // Server unreachable — use cached or local defaults silently
     }
   }
 

@@ -1,0 +1,217 @@
+/* ── Command Block Overlay ─────────────────────────────────────── */
+
+.cb-overlay {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 420px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border-left: 1px solid #333;
+  z-index: 5;
+  overflow: hidden;
+}
+
+.cb-overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #252526;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.cb-overlay-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d4d4d4;
+}
+
+.cb-overlay-count {
+  font-size: 11px;
+  color: #888;
+  background: #333;
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.cb-overlay-hint {
+  font-size: 10px;
+  color: #666;
+  margin-left: auto;
+}
+
+.cb-overlay-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+}
+
+/* ── Upgrade Prompt ───────────────────────────────────────────── */
+
+.cb-upgrade-prompt {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 420px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #1a1a1aee;
+  border-left: 1px solid #333;
+  z-index: 5;
+  padding: 32px;
+  text-align: center;
+}
+
+.cb-upgrade-icon {
+  font-size: 36px;
+  margin-bottom: 4px;
+}
+
+.cb-upgrade-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #d4d4d4;
+}
+
+.cb-upgrade-desc {
+  font-size: 13px;
+  color: #888;
+  line-height: 1.5;
+  max-width: 300px;
+}
+
+.cb-upgrade-btn {
+  background: #0e639c;
+  color: #fff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cb-upgrade-btn:hover {
+  background: #1177bb;
+}
+
+.cb-upgrade-dismiss {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.cb-upgrade-dismiss:hover {
+  color: #888;
+  background: transparent;
+}
+
+/* ── Toggle Button ────────────────────────────────────────────── */
+
+.cb-toggle-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  background: #252526;
+  border: 1px solid #333;
+  color: #888;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s;
+  opacity: 0.7;
+}
+
+.cb-toggle-btn:hover {
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border-color: #555;
+  opacity: 1;
+}
+
+.cb-toggle-btn.cb-active {
+  background: #0e639c;
+  border-color: #0e639c;
+  color: #fff;
+  opacity: 1;
+}
+
+.cb-toggle-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ── Light Theme ──────────────────────────────────────────────── */
+
+[data-theme="light"] .cb-overlay {
+  background: #fafafa;
+  border-left-color: #ddd;
+}
+
+[data-theme="light"] .cb-overlay-header {
+  background: #f0f0f0;
+  border-bottom-color: #ddd;
+}
+
+[data-theme="light"] .cb-overlay-title {
+  color: #333;
+}
+
+[data-theme="light"] .cb-overlay-count {
+  color: #666;
+  background: #e0e0e0;
+}
+
+[data-theme="light"] .cb-overlay-hint {
+  color: #999;
+}
+
+[data-theme="light"] .cb-upgrade-prompt {
+  background: #fafafaee;
+  border-left-color: #ddd;
+}
+
+[data-theme="light"] .cb-upgrade-title {
+  color: #333;
+}
+
+[data-theme="light"] .cb-upgrade-desc {
+  color: #666;
+}
+
+[data-theme="light"] .cb-toggle-btn {
+  background: #f0f0f0;
+  border-color: #ddd;
+  color: #666;
+}
+
+[data-theme="light"] .cb-toggle-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+  border-color: #ccc;
+}
+
+[data-theme="light"] .cb-toggle-btn.cb-active {
+  background: #0e639c;
+  border-color: #0e639c;
+  color: #fff;
+}

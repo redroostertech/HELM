@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import ConfirmModal from './ConfirmModal';
 import './SettingsPanel.css';
 
 interface Settings {
@@ -48,6 +49,18 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
   const [loggingOut, setLoggingOut] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
+  // Mobile Access state
+  const [mobileFeature, setMobileFeature] = useState(false);
+  const [mobileStatus, setMobileStatus] = useState<any>(null);
+  const [mobileSettings, setMobileSettings] = useState<any>(null);
+  const [mobilePIN, setMobilePIN] = useState<string | null>(null);
+  const [mobileQR, setMobileQR] = useState<string | null>(null);
+  const [byokEnabled, setByokEnabled] = useState(false);
+  const [revokeDevice, setRevokeDevice] = useState<any>(null);
+  const [mobileStarting, setMobileStarting] = useState(false);
+  const [mobilePort, setMobilePort] = useState(8384);
+  const [mobileIdleTimeout, setMobileIdleTimeout] = useState(15);
+
   useEffect(() => {
     setSettings(currentSettings);
   }, [currentSettings]);
@@ -55,6 +68,28 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
   useEffect(() => {
     if (isOpen) {
       window.electronAPI.licenseGetUsage().then(setUsage).catch(() => {});
+
+      // Load mobile access state
+      window.electronAPI.licenseGetFeatures().then((features: any) => {
+        setMobileFeature(!!features.mobileAccess);
+      }).catch(() => {});
+      window.electronAPI.mobileGetStatus().then((status: any) => {
+        setMobileStatus(status);
+        if (status?.running) {
+          window.electronAPI.mobileGetQRCode().then(setMobileQR).catch(() => {});
+        }
+      }).catch(() => {});
+      window.electronAPI.mobileGetSettings().then((s: any) => {
+        setMobileSettings(s);
+        setMobilePort(s?.port || 8384);
+        setMobileIdleTimeout(s?.idleTimeoutMinutes || 15);
+      }).catch(() => {});
+
+      // Poll mobile status every 5s to update connected count
+      const mobileInterval = setInterval(() => {
+        window.electronAPI.mobileGetStatus().then(setMobileStatus).catch(() => {});
+      }, 5000);
+      return () => clearInterval(mobileInterval);
     }
   }, [isOpen]);
 
@@ -92,6 +127,9 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                     const result = await window.electronAPI.authSync();
                     if (result.usage) setUsage(result.usage);
                     if (result.authState) onAuthStateChange(result.authState);
+                    // Re-fetch features in case tier changed
+                    const features = await window.electronAPI.licenseGetFeatures();
+                    setMobileFeature(!!features.mobileAccess);
                   } finally {
                     setSyncing(false);
                   }
@@ -269,10 +307,34 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
         {/* Bring Your Own Key */}
         <section className="settings-section">
           <h3>Bring Your Own Key</h3>
-          {usage?.tier === 'byok' ? (
+          {(usage?.tier === 'byok' || usage?.tier === 'basic' || usage?.tier === 'pro') ? (
             <>
+              {usage?.tier !== 'byok' && (
+                <div className="setting-row">
+                  <label>Use Own Key</label>
+                  <div className="toggle-group">
+                    <button
+                      className={!byokEnabled ? 'active' : ''}
+                      onClick={() => setByokEnabled(false)}
+                    >
+                      Off
+                    </button>
+                    <button
+                      className={byokEnabled ? 'active' : ''}
+                      onClick={() => setByokEnabled(true)}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(usage?.tier === 'byok' || byokEnabled) && (
+              <>
               <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
-                Configure your own OpenAI or Anthropic key for unlimited AI requests.
+                {usage?.tier === 'byok'
+                  ? 'Configure your own OpenAI or Anthropic key for unlimited AI requests.'
+                  : 'Your own key bypasses monthly call limits.'}
               </p>
 
               <div className="setting-row">
@@ -382,6 +444,8 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                   )}
                 </>
               )}
+              </>
+              )}
             </>
           ) : (
             <div className="byok-promo">
@@ -415,6 +479,212 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
                 Upgrade to BYOK — $2.99/mo
               </button>
             </div>
+          )}
+        </section>
+
+        {/* Mobile Access */}
+        <section className="settings-section">
+          <h3>Mobile Access</h3>
+          {!mobileFeature ? (
+            <div className="byok-promo">
+              <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>
+                Access your HELM terminal from your phone or tablet on the same network.
+              </p>
+              <div className="byok-promo-features">
+                <div className="byok-promo-feature">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  View terminal output in real-time
+                </div>
+                <div className="byok-promo-feature">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Send commands from mobile
+                </div>
+                <div className="byok-promo-feature">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  Smart keyboard with CLI shortcuts
+                </div>
+              </div>
+              <button
+                className="byok-upgrade-btn"
+                onClick={() => window.electronAPI.authOpenPricing()}
+              >
+                Upgrade to Basic or Pro
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="setting-row">
+                <label>Server</label>
+                <div className="toggle-group">
+                  <button
+                    className={!mobileStatus?.running ? 'active' : ''}
+                    disabled={mobileStarting}
+                    onClick={async () => {
+                      try {
+                        await window.electronAPI.mobileStop();
+                        const status = await window.electronAPI.mobileGetStatus();
+                        setMobileStatus(status);
+                        setMobileQR(null);
+                      } catch { /* ignore */ }
+                    }}
+                  >
+                    Off
+                  </button>
+                  <button
+                    className={mobileStatus?.running ? 'active' : ''}
+                    disabled={mobileStarting}
+                    onClick={async () => {
+                      setMobileStarting(true);
+                      try {
+                        await window.electronAPI.mobileUpdateSettings({ port: mobilePort, idleTimeoutMinutes: mobileIdleTimeout });
+                        await window.electronAPI.mobileStart();
+                        const status = await window.electronAPI.mobileGetStatus();
+                        setMobileStatus(status);
+                        const qr = await window.electronAPI.mobileGetQRCode();
+                        setMobileQR(qr);
+                      } catch { /* ignore */ }
+                      setMobileStarting(false);
+                    }}
+                  >
+                    {mobileStarting ? 'Starting...' : 'On'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="setting-row">
+                <label>Idle Timeout</label>
+                <select
+                  value={mobileIdleTimeout}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setMobileIdleTimeout(val);
+                    window.electronAPI.mobileUpdateSettings({ idleTimeoutMinutes: val });
+                  }}
+                >
+                  <option value={5}>5 minutes</option>
+                  <option value={15}>15 minutes</option>
+                  <option value={30}>30 minutes</option>
+                  <option value={60}>1 hour</option>
+                </select>
+              </div>
+
+              {mobileStatus?.running && (
+                <>
+                  {mobileStatus.connectedDevices > 0 && (
+                    <div className="setting-row">
+                      <label>Connected</label>
+                      <span className="settings-info-text" style={{ color: '#28c840' }}>
+                        {mobileStatus.connectedDevices} active
+                      </span>
+                    </div>
+                  )}
+
+                  {/* QR Code + Access URL */}
+                  {mobileStatus.accessUrl && (
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      padding: '16px 0',
+                      gap: 12,
+                    }}>
+                      {mobileQR && (
+                        <img
+                          src={mobileQR}
+                          alt="Scan to connect"
+                          style={{ width: 160, height: 160, borderRadius: 8 }}
+                        />
+                      )}
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+                          Scan QR or open on your phone:
+                        </div>
+                        <code style={{
+                          fontSize: 13,
+                          color: '#4fc3f7',
+                          background: '#1e1e1e',
+                          padding: '4px 10px',
+                          borderRadius: 4,
+                          userSelect: 'all',
+                        }}>
+                          {mobileStatus.accessUrl}
+                        </code>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="setting-row">
+                    <label>Pair Device</label>
+                    {mobilePIN ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{
+                          fontFamily: "'Menlo', monospace",
+                          fontSize: 20,
+                          fontWeight: 700,
+                          letterSpacing: 4,
+                          color: '#4fc3f7',
+                        }}>
+                          {mobilePIN}
+                        </span>
+                        <span className="settings-info-text" style={{ fontSize: 11 }}>expires in 5 min</span>
+                      </div>
+                    ) : (
+                      <button
+                        className="auth-register-btn"
+                        style={{ padding: '6px 16px', fontSize: 12 }}
+                        onClick={async () => {
+                          const pin = await window.electronAPI.mobileGeneratePIN();
+                          setMobilePIN(pin);
+                          setTimeout(() => setMobilePIN(null), 5 * 60 * 1000);
+                        }}
+                      >
+                        Generate PIN
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Paired devices list */}
+              {mobileStatus?.pairedDevices && mobileStatus.pairedDevices.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, color: '#666', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Paired Devices
+                  </div>
+                  {mobileStatus.pairedDevices.map((device: any) => (
+                    <div key={device.id} style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 12px',
+                      background: '#2d2d30',
+                      borderRadius: 8,
+                      marginBottom: 6,
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 13, color: '#d4d4d4' }}>{device.name}</div>
+                        <div style={{ fontSize: 11, color: '#666' }}>
+                          Paired {new Date(device.pairedAt).toLocaleDateString()} — Last seen {new Date(device.lastSeen).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <button
+                        className="danger-btn"
+                        style={{ padding: '4px 12px', fontSize: 11 }}
+                        onClick={() => setRevokeDevice(device)}
+                      >
+                        Revoke
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </section>
 
@@ -452,6 +722,22 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
           </button>
         </div>
       </div>
+      <ConfirmModal
+        isOpen={!!revokeDevice}
+        title="Revoke Device"
+        message={`Revoke access for "${revokeDevice?.name}"? This device will need to pair again with a new PIN.`}
+        confirmLabel="Revoke"
+        danger
+        onConfirm={async () => {
+          if (revokeDevice) {
+            await window.electronAPI.mobileRevokeDevice(revokeDevice.id);
+            const status = await window.electronAPI.mobileGetStatus();
+            setMobileStatus(status);
+          }
+          setRevokeDevice(null);
+        }}
+        onCancel={() => setRevokeDevice(null)}
+      />
     </div>
   );
 }

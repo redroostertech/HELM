@@ -37,6 +37,7 @@ import { OpenAIService } from './openai-service';
 import { AnthropicService } from './anthropic-service';
 import { HelmAPI } from './helm-api';
 import { LicenseManager } from './licensing';
+import { MobileAccessServer } from './mobile-server';
 
 // Register custom protocol for deep linking (helm://)
 if (process.defaultApp) {
@@ -52,6 +53,7 @@ let ptyManager: PTYManager | null = null;
 let db: DatabaseManager | null = null;
 let aiService: AIService | null = null;
 let licenseManager: LicenseManager | null = null;
+let mobileServer: MobileAccessServer | null = null;
 
 // Forge API configuration — all AI requests route through Forge
 const FORGE_API_KEY = 'rrt-burst-3f24900af81b04ba915d3fda37df147bf297d5e12444dee1a87f54fabec13e6a';
@@ -129,6 +131,26 @@ function createWindow() {
   ptyManager = new PTYManager(db);
   licenseManager = new LicenseManager();
   aiService = createAIService();
+  mobileServer = new MobileAccessServer();
+
+  // Forward CLI start/stop events to mobile clients
+  ptyManager.onCLIStatus((tabId, active, programName) => {
+    if (mobileServer) {
+      mobileServer.broadcastCLIStatus(tabId, active, programName);
+    }
+  });
+
+  // Forward CLI conversation events (Claude responses) to mobile clients
+  ptyManager.cliWatcher.onEvent((event) => {
+    if (!mobileServer) return;
+    // Find which tab this CLI session belongs to
+    for (const [tabId, info] of (ptyManager as any).instances) {
+      if (info.activeCLI?.cliSessionId === event.cliSessionId) {
+        mobileServer.broadcastCLIEvent(tabId, { type: event.type, content: event.content });
+        break;
+      }
+    }
+  });
 
   // Set up IPC handlers
   setupIPCHandlers();
@@ -166,6 +188,10 @@ function setupIPCHandlers() {
       ptyManager.onData(id, (data) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('pty:data', id, data);
+        }
+        // Forward PTY output to mobile clients
+        if (mobileServer) {
+          mobileServer.broadcastPTYData(id, data);
         }
       });
 
@@ -430,6 +456,80 @@ function setupIPCHandlers() {
     return db.getRecentCLIInputs(limit);
   });
 
+  // Autocomplete handlers
+  ipcMain.handle('autocomplete:searchHistory', async (_, prefix: string, limit?: number) => {
+    if (!db) return [];
+    try {
+      return await db.searchCommandHistory(prefix, limit);
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle('autocomplete:frequentCommands', async (_, limit?: number) => {
+    if (!db) return [];
+    try {
+      return await db.getFrequentCommands(limit);
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle('autocomplete:pathComplete', async (_, partialPath: string, cwd: string) => {
+    try {
+      // Expand ~ to home directory
+      let expanded = partialPath.replace(/^~/, os.homedir());
+
+      // If path is relative, resolve against cwd
+      if (!expanded.startsWith('/')) {
+        expanded = path.join(cwd || os.homedir(), expanded);
+      }
+
+      const isComplete = expanded.endsWith('/');
+      const dir = isComplete ? expanded : path.dirname(expanded);
+      const partial = isComplete ? '' : path.basename(expanded).toLowerCase();
+
+      if (!fs.existsSync(dir)) return [];
+
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      return entries
+        .filter(e => !e.name.startsWith('.'))
+        .filter(e => !partial || e.name.toLowerCase().startsWith(partial))
+        .slice(0, 15)
+        .map(e => {
+          const isDir = e.isDirectory();
+          const name = isDir ? e.name + '/' : e.name;
+          // Build the completion relative to what the user typed
+          if (isComplete) {
+            return partialPath + name;
+          }
+          const parentPart = partialPath.substring(0, partialPath.lastIndexOf('/') + 1);
+          return parentPart + name;
+        });
+    } catch {
+      return [];
+    }
+  });
+
+  // Session search handlers
+  ipcMain.handle('db:searchAll', async (_, params: {
+    query: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sessionId?: number;
+    cliProgram?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    if (!db) throw new Error('Database not initialized');
+    return db.searchAll(params);
+  });
+
+  ipcMain.handle('db:getDistinctCLIPrograms', async () => {
+    if (!db) throw new Error('Database not initialized');
+    return db.getDistinctCLIPrograms();
+  });
+
   ipcMain.handle('pty:getActiveCLI', async (_, tabId: string) => {
     return ptyManager?.getActiveCLI(tabId) || null;
   });
@@ -539,6 +639,105 @@ function setupIPCHandlers() {
     if (!licenseManager) return;
     const url = licenseManager.getPricingUrl();
     shell.openExternal(url);
+  });
+
+  // ── Mobile Access handlers ─────────────────────────────────────
+
+  ipcMain.handle('mobile:getStatus', async () => {
+    return mobileServer?.getStatus() || { running: false, port: 8384, connectedDevices: 0, pairedDevices: [], localIP: null, accessUrl: null };
+  });
+
+  ipcMain.handle('mobile:getSettings', async () => {
+    return mobileServer?.getSettings() || { enabled: false, port: 8384, idleTimeoutMinutes: 15, pairedDevices: [] };
+  });
+
+  ipcMain.handle('mobile:updateSettings', async (_, settings: any) => {
+    if (!mobileServer) return;
+    mobileServer.updateSettings(settings);
+  });
+
+  ipcMain.handle('mobile:start', async () => {
+    if (!mobileServer) throw new Error('Mobile server not initialized');
+
+    // Wire up PTY callbacks before starting
+    mobileServer.setPTYCallbacks(
+      // write
+      (tabId: string, data: string) => {
+        ptyManager?.write(tabId, data);
+      },
+      // resize
+      (tabId: string, cols: number, rows: number) => {
+        ptyManager?.resize(tabId, cols, rows);
+      },
+      // getTabs — read from renderer tab state via mainWindow
+      () => {
+        // We return a simple list; the renderer manages the canonical tab list.
+        // This reads from the saved tabs in localStorage via the settings file approach.
+        try {
+          const saved = require('fs').readFileSync(
+            require('path').join(require('os').homedir(), '.helm-settings.json'), 'utf-8'
+          );
+          // Tabs are stored in localStorage, not the settings file.
+          // Instead, we query the renderer.
+        } catch { /* ignore */ }
+        // Fallback: return empty — tabs will be sent when renderer notifies us.
+        return [];
+      },
+      // addDataListener (already handled via broadcastPTYData in the onData hook)
+      (_tabId: string, _callback: (data: string) => void) => {
+        // Data forwarding is handled by the broadcastPTYData call in the pty:start handler
+      }
+    );
+
+    await mobileServer.start();
+    mobileServer.updateSettings({ enabled: true });
+  });
+
+  ipcMain.handle('mobile:stop', async () => {
+    if (!mobileServer) return;
+    mobileServer.stop();
+    mobileServer.updateSettings({ enabled: false });
+  });
+
+  ipcMain.handle('mobile:generatePIN', async () => {
+    if (!mobileServer) throw new Error('Mobile server not initialized');
+    return mobileServer.generatePIN();
+  });
+
+  ipcMain.handle('mobile:getQRCode', async () => {
+    if (!mobileServer) return null;
+    const status = mobileServer.getStatus();
+    if (!status.accessUrl) return null;
+    try {
+      const QRCode = require('qrcode');
+      return await QRCode.toDataURL(status.accessUrl, { width: 200, margin: 1 });
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('mobile:revokeDevice', async (_, deviceId: string) => {
+    if (!mobileServer) return;
+    mobileServer.revokeDevice(deviceId);
+  });
+
+  ipcMain.handle('mobile:getPairedDevices', async () => {
+    return mobileServer?.getPairedDevices() || [];
+  });
+
+  // Renderer notifies us of tab list changes
+  ipcMain.on('mobile:tabsChanged', (_, tabs: any[]) => {
+    if (mobileServer) {
+      // Update the getTabs callback to return current tabs
+      const currentTabs = tabs;
+      mobileServer.setPTYCallbacks(
+        (tabId: string, data: string) => { ptyManager?.write(tabId, data); },
+        (tabId: string, cols: number, rows: number) => { ptyManager?.resize(tabId, cols, rows); },
+        () => currentTabs,
+        () => { /* handled by broadcastPTYData */ }
+      );
+      mobileServer.broadcastTabsChanged();
+    }
   });
 
 }
@@ -702,6 +901,7 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  mobileServer?.stop();
   ptyManager?.killAll();
   db?.close();
 });

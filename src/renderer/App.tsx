@@ -9,6 +9,7 @@ import SettingsPanel from './components/SettingsPanel';
 import ConfirmModal from './components/ConfirmModal';
 import ChatPane from './components/ChatPane';
 import SessionsPane from './components/SessionsPane';
+import SessionSearch from './components/SessionSearch';
 
 const DEFAULT_SETTINGS = {
   theme: 'dark' as const,
@@ -82,13 +83,21 @@ function App() {
     userName: string | null;
     tier: string;
   }>({ isAuthenticated: false, email: null, userName: null, tier: 'free' });
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFeatureEnabled, setSearchFeatureEnabled] = useState(false);
 
   // AI features require authentication
   const isAuthenticated = authState.isAuthenticated;
 
-  // Persist tabs
+  // Persist tabs and notify mobile server
   useEffect(() => {
     saveTabs(tabs, activeTabId);
+    // Notify mobile server of tab changes
+    window.electronAPI.mobileTabsChanged(tabs.map(t => ({
+      id: t.id,
+      label: t.label,
+      description: t.description || '',
+    })));
   }, [tabs, activeTabId]);
 
   // Refit terminal when panels toggle
@@ -113,6 +122,10 @@ function App() {
     const cleanupAuth = window.electronAPI.onAuthStateChanged((state: any) => {
       setAuthState(state);
       window.electronAPI.licenseGetUsage().then(setUsage).catch(() => {});
+      // Re-check feature flags on auth change
+      window.electronAPI.licenseGetFeatures().then((features: Record<string, boolean>) => {
+        setSearchFeatureEnabled(!!features.sessionSearch);
+      }).catch(() => {});
     });
 
     // Listen for license/subscription updates (background sync, focus sync)
@@ -120,11 +133,27 @@ function App() {
       setUsage(newUsage);
     });
 
+    // Check session search feature flag
+    window.electronAPI.licenseGetFeatures().then((features: Record<string, boolean>) => {
+      setSearchFeatureEnabled(!!features.sessionSearch);
+    }).catch(() => {});
+
     // Listen for delete history event from settings
     const handler = () => setShowDeleteConfirm(true);
     window.addEventListener('show-delete-history-modal', handler);
+
+    // Global keyboard shortcut: Cmd+Shift+F for session search
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'f') {
+        e.preventDefault();
+        setSearchOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
       window.removeEventListener('show-delete-history-modal', handler);
+      window.removeEventListener('keydown', handleKeyDown);
       cleanupAuth();
       cleanupLicense();
     };
@@ -237,6 +266,13 @@ function App() {
   const handleRenameTab = (tabId: string, label: string) => {
     setTabs(prev => prev.map(t => t.id === tabId ? { ...t, label } : t));
   };
+
+  const handleSearchJumpToSession = useCallback((sessionId: number) => {
+    setSearchOpen(false);
+    setSessionsOpen(true);
+    // Dispatch a custom event so SessionsPane can open the specific session
+    window.dispatchEvent(new CustomEvent('jump-to-session', { detail: { sessionId } }));
+  }, []);
 
   const handleDeleteHistory = async () => {
     await window.electronAPI.dbClearHistory();
@@ -386,6 +422,15 @@ function App() {
         danger
         onConfirm={confirmCloseTab}
         onCancel={() => setShowCloseTabConfirm(null)}
+      />
+
+      {/* Session Search (Cmd+Shift+F) */}
+      <SessionSearch
+        isOpen={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        onJumpToSession={handleSearchJumpToSession}
+        featureEnabled={searchFeatureEnabled}
+        onUpgrade={() => { setSearchOpen(false); setSettingsOpen(true); }}
       />
     </div>
   );

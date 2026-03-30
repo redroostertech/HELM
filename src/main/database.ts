@@ -522,6 +522,146 @@ export class DatabaseManager {
     return result.rows;
   }
 
+  // ── Full-text search across sessions, commands, CLI conversations ──
+
+  async searchAll(params: {
+    query: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sessionId?: number;
+    cliProgram?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ results: any[]; total: number }> {
+    const { query, dateFrom, dateTo, sessionId, cliProgram, limit = 50, offset = 0 } = params;
+    const pattern = `%${query}%`;
+
+    // We build a parameterized query using positional placeholders.
+    // Union: command input matches, command output matches, CLI input matches, CLI output matches
+    const args: any[] = [];
+    let paramIdx = 0;
+    const p = () => { paramIdx++; return `$${paramIdx}`; };
+
+    // -- Command input/output matches --
+    const cmdPattern1 = p(); args.push(pattern);
+    const cmdPattern2 = p(); args.push(pattern);
+    let cmdWhere = `(c.input ILIKE ${cmdPattern1} OR c.output ILIKE ${cmdPattern2})`;
+    if (dateFrom) { const ph = p(); args.push(dateFrom); cmdWhere += ` AND c.timestamp >= ${ph}`; }
+    if (dateTo) { const ph = p(); args.push(dateTo); cmdWhere += ` AND c.timestamp <= ${ph}`; }
+    if (sessionId) { const ph = p(); args.push(sessionId); cmdWhere += ` AND c.session_id = ${ph}`; }
+
+    // -- CLI input/output matches --
+    const cliPattern1 = p(); args.push(pattern);
+    const cliPattern2 = p(); args.push(pattern);
+    let cliWhere = `(ci.input ILIKE ${cliPattern1} OR ci.output_preview ILIKE ${cliPattern2})`;
+    if (dateFrom) { const ph = p(); args.push(dateFrom); cliWhere += ` AND ci.timestamp >= ${ph}`; }
+    if (dateTo) { const ph = p(); args.push(dateTo); cliWhere += ` AND ci.timestamp <= ${ph}`; }
+    if (sessionId) { const ph = p(); args.push(sessionId); cliWhere += ` AND cs.session_id = ${ph}`; }
+    if (cliProgram) { const ph = p(); args.push(cliProgram); cliWhere += ` AND cs.program_id = ${ph}`; }
+
+    const limitPh = p(); args.push(limit);
+    const offsetPh = p(); args.push(offset);
+
+    const sql = `
+      WITH search_results AS (
+        SELECT
+          'command' AS result_type,
+          c.id AS result_id,
+          c.input AS title,
+          LEFT(c.output, 200) AS preview,
+          c.timestamp AS result_time,
+          c.session_id,
+          s.working_dir AS session_dir,
+          NULL::text AS cli_program_id,
+          NULL::text AS cli_program_name,
+          NULL::text AS cli_program_color,
+          NULL::integer AS cli_session_id
+        FROM commands c
+        JOIN sessions s ON c.session_id = s.id
+        WHERE ${cmdWhere}
+
+        UNION ALL
+
+        SELECT
+          'cli_input' AS result_type,
+          ci.id AS result_id,
+          ci.input AS title,
+          LEFT(ci.output_preview, 200) AS preview,
+          ci.timestamp AS result_time,
+          cs.session_id,
+          s.working_dir AS session_dir,
+          cs.program_id AS cli_program_id,
+          cs.program_name AS cli_program_name,
+          cs.program_color AS cli_program_color,
+          cs.id AS cli_session_id
+        FROM cli_inputs ci
+        JOIN cli_sessions cs ON ci.cli_session_id = cs.id
+        JOIN sessions s ON cs.session_id = s.id
+        WHERE ${cliWhere}
+      )
+      SELECT *, COUNT(*) OVER() AS total_count
+      FROM search_results
+      ORDER BY result_time DESC
+      LIMIT ${limitPh} OFFSET ${offsetPh}
+    `;
+
+    const result = await this.pool.query(sql, args);
+    const total = result.rows.length > 0 ? parseInt(result.rows[0].total_count, 10) : 0;
+    return {
+      results: result.rows.map(r => ({
+        resultType: r.result_type,
+        resultId: r.result_id,
+        title: r.title,
+        preview: r.preview,
+        resultTime: r.result_time,
+        sessionId: r.session_id,
+        sessionDir: r.session_dir,
+        cliProgramId: r.cli_program_id,
+        cliProgramName: r.cli_program_name,
+        cliProgramColor: r.cli_program_color,
+        cliSessionId: r.cli_session_id,
+      })),
+      total,
+    };
+  }
+
+  async getDistinctCLIPrograms(): Promise<{ program_id: string; program_name: string }[]> {
+    const result = await this.pool.query(
+      'SELECT DISTINCT program_id, program_name FROM cli_sessions ORDER BY program_name'
+    );
+    return result.rows;
+  }
+
+  /**
+   * Search command history for autocomplete suggestions.
+   * Returns unique commands ranked by frequency and recency.
+   */
+  async searchCommandHistory(prefix: string, limit: number = 20): Promise<string[]> {
+    const result = await this.pool.query(`
+      SELECT input, COUNT(*)::int AS use_count, MAX(timestamp) AS last_used
+      FROM commands
+      WHERE input ILIKE $1
+      GROUP BY input
+      ORDER BY use_count DESC, last_used DESC
+      LIMIT $2
+    `, [prefix + '%', limit]);
+    return result.rows.map((r: any) => r.input);
+  }
+
+  /**
+   * Get the most frequently used commands (for empty-input autocomplete).
+   */
+  async getFrequentCommands(limit: number = 20): Promise<string[]> {
+    const result = await this.pool.query(`
+      SELECT input, COUNT(*)::int AS use_count, MAX(timestamp) AS last_used
+      FROM commands
+      GROUP BY input
+      ORDER BY use_count DESC, last_used DESC
+      LIMIT $1
+    `, [limit]);
+    return result.rows.map((r: any) => r.input);
+  }
+
   async clearHistory(): Promise<void> {
     await this.pool.query('DELETE FROM cli_inputs');
     await this.pool.query('DELETE FROM cli_sessions');

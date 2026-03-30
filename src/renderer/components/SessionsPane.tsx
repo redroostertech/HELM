@@ -28,7 +28,28 @@ export default function SessionsPane({ isOpen, activeTabId }: SessionsPaneProps)
       setSessionCommands([]);
     };
     window.addEventListener('history-cleared', handleCleared);
-    return () => window.removeEventListener('history-cleared', handleCleared);
+
+    // Listen for jump-to-session events from search
+    const handleJump = async (e: Event) => {
+      const sessionId = (e as CustomEvent).detail?.sessionId;
+      if (sessionId) {
+        // Load sessions if not loaded yet
+        try {
+          const s = await window.electronAPI.dbGetSessions();
+          setSessions(s);
+          const session = s.find((sess: any) => sess.id === sessionId);
+          if (session) {
+            openSession(session);
+          }
+        } catch {}
+      }
+    };
+    window.addEventListener('jump-to-session', handleJump);
+
+    return () => {
+      window.removeEventListener('history-cleared', handleCleared);
+      window.removeEventListener('jump-to-session', handleJump);
+    };
   }, []);
 
   const loadSessions = async () => {

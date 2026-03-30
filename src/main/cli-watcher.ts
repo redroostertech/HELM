@@ -28,14 +28,32 @@ interface ConversationEntry {
   parentUuid?: string;
 }
 
+export type CLIEventCallback = (event: {
+  type: 'user_input' | 'assistant_response' | 'thinking';
+  cliSessionId: number;
+  content: string;
+}) => void;
+
 export class CLIConversationWatcher {
   private watchers: Map<number, fs.FSWatcher> = new Map(); // cliSessionId -> watcher
   private lastReadPosition: Map<string, number> = new Map(); // filePath -> byte offset
   private claudeDir: string;
   private pollIntervals: Map<number, NodeJS.Timeout> = new Map();
+  private eventCallbacks: CLIEventCallback[] = [];
 
   constructor(private db: DatabaseManager) {
     this.claudeDir = path.join(os.homedir(), '.claude');
+  }
+
+  /** Register a callback for real-time CLI conversation events */
+  onEvent(callback: CLIEventCallback): void {
+    this.eventCallbacks.push(callback);
+  }
+
+  private emitEvent(event: { type: 'user_input' | 'assistant_response' | 'thinking'; cliSessionId: number; content: string }): void {
+    for (const cb of this.eventCallbacks) {
+      try { cb(event); } catch {}
+    }
   }
 
   /**
@@ -227,6 +245,7 @@ export class CLIConversationWatcher {
 
       // Save as CLI input
       const inputId = await this.db.saveCLIInput(cliSessionId, content.trim());
+      this.emitEvent({ type: 'user_input', cliSessionId, content: content.trim() });
       console.log(`📝 Claude Code input: "${content.trim().slice(0, 80)}"`);
 
     } else if (role === 'assistant') {
@@ -248,6 +267,7 @@ export class CLIConversationWatcher {
         const lastInput = inputs[inputs.length - 1];
         if (!lastInput.output_preview) {
           await this.db.updateCLIInputResponse(lastInput.id, content.trim());
+          this.emitEvent({ type: 'assistant_response', cliSessionId, content: content.trim() });
           console.log(`💬 Claude Code response saved (${content.trim().length} chars)`);
         }
       }

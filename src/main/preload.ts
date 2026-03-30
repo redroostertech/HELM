@@ -128,10 +128,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('db:getSessionCommandsWithCLI', sessionId),
   dbGetRecentCLIInputs: (limit?: number) =>
     ipcRenderer.invoke('db:getRecentCLIInputs', limit),
+  dbSearchAll: (params: {
+    query: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sessionId?: number;
+    cliProgram?: string;
+    limit?: number;
+    offset?: number;
+  }) => ipcRenderer.invoke('db:searchAll', params),
+  dbGetDistinctCLIPrograms: () =>
+    ipcRenderer.invoke('db:getDistinctCLIPrograms'),
   ptyGetActiveCLI: (tabId: string) =>
     ipcRenderer.invoke('pty:getActiveCLI', tabId),
   ptyResumeSession: (tabId: string, sessionId: number, workingDir: string) =>
     ipcRenderer.invoke('pty:resumeSession', tabId, sessionId, workingDir),
+
+  // Mobile Access
+  mobileGetStatus: () => ipcRenderer.invoke('mobile:getStatus'),
+  mobileGetSettings: () => ipcRenderer.invoke('mobile:getSettings'),
+  mobileUpdateSettings: (settings: any) => ipcRenderer.invoke('mobile:updateSettings', settings),
+  mobileStart: () => ipcRenderer.invoke('mobile:start'),
+  mobileStop: () => ipcRenderer.invoke('mobile:stop'),
+  mobileGeneratePIN: () => ipcRenderer.invoke('mobile:generatePIN'),
+  mobileGetQRCode: () => ipcRenderer.invoke('mobile:getQRCode'),
+  mobileRevokeDevice: (deviceId: string) => ipcRenderer.invoke('mobile:revokeDevice', deviceId),
+  mobileGetPairedDevices: () => ipcRenderer.invoke('mobile:getPairedDevices'),
+  mobileTabsChanged: (tabs: any[]) => ipcRenderer.send('mobile:tabsChanged', tabs),
+
+  // Autocomplete
+  autocompleteSearchHistory: (prefix: string, limit?: number) =>
+    ipcRenderer.invoke('autocomplete:searchHistory', prefix, limit),
+  autocompleteFrequentCommands: (limit?: number) =>
+    ipcRenderer.invoke('autocomplete:frequentCommands', limit),
+  autocompletePathComplete: (partialPath: string, cwd: string) =>
+    ipcRenderer.invoke('autocomplete:pathComplete', partialPath, cwd),
 });
 
 export interface ElectronAPI {
@@ -202,8 +233,45 @@ export interface ElectronAPI {
   dbGetCLIInputs: (cliSessionId: number) => Promise<any[]>;
   dbGetSessionCommandsWithCLI: (sessionId: number) => Promise<any[]>;
   dbGetRecentCLIInputs: (limit?: number) => Promise<any[]>;
+  dbSearchAll: (params: {
+    query: string;
+    dateFrom?: string;
+    dateTo?: string;
+    sessionId?: number;
+    cliProgram?: string;
+    limit?: number;
+    offset?: number;
+  }) => Promise<{ results: any[]; total: number }>;
+  dbGetDistinctCLIPrograms: () => Promise<{ program_id: string; program_name: string }[]>;
   ptyGetActiveCLI: (tabId: string) => Promise<{ programId: string; programName: string } | null>;
   ptyResumeSession: (tabId: string, sessionId: number, workingDir: string) => Promise<boolean>;
+
+  // Mobile Access
+  mobileGetStatus: () => Promise<{
+    running: boolean;
+    port: number;
+    connectedDevices: number;
+    pairedDevices: Array<{ id: string; name: string; pairedAt: string; lastSeen: string }>;
+  }>;
+  mobileGetSettings: () => Promise<{
+    enabled: boolean;
+    port: number;
+    idleTimeoutMinutes: number;
+    pairedDevices: Array<{ id: string; name: string; pairedAt: string; lastSeen: string }>;
+  }>;
+  mobileUpdateSettings: (settings: any) => Promise<void>;
+  mobileStart: () => Promise<void>;
+  mobileStop: () => Promise<void>;
+  mobileGeneratePIN: () => Promise<string>;
+  mobileGetQRCode: () => Promise<string | null>;
+  mobileRevokeDevice: (deviceId: string) => Promise<void>;
+  mobileGetPairedDevices: () => Promise<Array<{ id: string; name: string; pairedAt: string; lastSeen: string }>>;
+  mobileTabsChanged: (tabs: any[]) => void;
+
+  // Autocomplete
+  autocompleteSearchHistory: (prefix: string, limit?: number) => Promise<string[]>;
+  autocompleteFrequentCommands: (limit?: number) => Promise<string[]>;
+  autocompletePathComplete: (partialPath: string, cwd: string) => Promise<string[]>;
 }
 
 declare global {
