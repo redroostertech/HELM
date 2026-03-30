@@ -51,8 +51,9 @@ export class CLIConversationWatcher {
   }
 
   private emitEvent(event: { type: 'user_input' | 'assistant_response' | 'thinking'; cliSessionId: number; content: string }): void {
+    console.log(`📡 CLI event emitted: ${event.type} (session ${event.cliSessionId}, ${this.eventCallbacks.length} listeners, content: ${event.content.slice(0, 50)}...)`);
     for (const cb of this.eventCallbacks) {
-      try { cb(event); } catch {}
+      try { cb(event); } catch (e: any) { console.error('CLI event callback error:', e.message); }
     }
   }
 

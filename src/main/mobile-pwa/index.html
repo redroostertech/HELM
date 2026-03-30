@@ -38,7 +38,6 @@
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
       -webkit-font-smoothing: antialiased;
       overflow: hidden;
-      touch-action: manipulation;
     }
 
     /* ── Screens ─────────────────────── */
@@ -334,15 +333,11 @@
 
     /* CLI conversation overlay */
     .cli-overlay {
-      position: absolute;
-      top: 44px;
-      left: 0;
-      right: 0;
-      bottom: 0;
+      flex: 1;
       background: var(--bg);
-      z-index: 10;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
 
     .cli-header {
@@ -372,6 +367,17 @@
     @keyframes pulse {
       0%, 100% { opacity: 0.4; }
       50% { opacity: 1; }
+    }
+
+    .thinking-dots::after {
+      content: '';
+      animation: dots 1.5s steps(3) infinite;
+    }
+
+    @keyframes dots {
+      0% { content: '.'; }
+      33% { content: '..'; }
+      66% { content: '...'; }
     }
 
     .cli-toggle-btn {
@@ -419,6 +425,105 @@
       white-space: pre-wrap;
       word-wrap: break-word;
     }
+
+    /* CLI banner (shown over terminal when CLI is active but terminal is visible) */
+    .cli-banner {
+      display: none;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(10, 10, 10, 0.95);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-top: 1px solid var(--border);
+      padding: 12px;
+      z-index: 5;
+      gap: 8px;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .cli-banner.visible {
+      display: flex;
+    }
+
+    .cli-banner-text {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    .cli-banner-buttons {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .cli-banner-btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      text-align: center;
+    }
+
+    .cli-banner-btn.continue {
+      background: #c07020;
+      color: #fff;
+    }
+
+    .cli-banner-btn.exit {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--danger);
+    }
+
+    /* Disconnect notice overlay */
+    .disconnect-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .disconnect-card {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 32px 24px;
+      max-width: 300px;
+      text-align: center;
+    }
+
+    .disconnect-card h3 {
+      color: var(--text);
+      margin-bottom: 8px;
+      font-size: 18px;
+    }
+
+    .disconnect-card p {
+      color: var(--text-dim);
+      font-size: 14px;
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+
+    .disconnect-card button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      background: #2a6cb6;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -458,7 +563,16 @@
       </button>
     </div>
 
-    <div id="termOutput" class="term-output"></div>
+    <div id="termOutput" class="term-output" style="position:relative;">
+      <!-- Banner shown when CLI is active but terminal view is showing -->
+      <div id="cliBanner" class="cli-banner">
+        <div class="cli-banner-text">Claude Code is running</div>
+        <div class="cli-banner-buttons">
+          <button class="cli-banner-btn continue" id="cliBannerContinue">Continue in Claude</button>
+          <button class="cli-banner-btn exit" id="cliBannerExit">Exit Claude</button>
+        </div>
+      </div>
+    </div>
 
     <!-- CLI conversation overlay (shown when Claude/Codex is active) -->
     <div id="cliOverlay" class="cli-overlay" style="display:none">
@@ -624,6 +738,12 @@
 
       ws.onclose = (event) => {
         statusDot.classList.add('disconnected');
+
+        // Show disconnect notice if we were on the terminal screen
+        if (terminalScreen.classList.contains('active') && event.code !== 4001 && event.code !== 4002) {
+          showDisconnectNotice();
+        }
+
         if (event.code === 4001) {
           // Device revoked
           localStorage.removeItem('helm-device-id');
@@ -700,52 +820,174 @@
     let cliActive = false;
     let showingTerminal = false;
 
+    const cliBanner = document.getElementById('cliBanner');
+    const cliBannerContinue = document.getElementById('cliBannerContinue');
+    const cliBannerExit = document.getElementById('cliBannerExit');
+
     cliToggleTerminal.addEventListener('click', () => {
       showingTerminal = !showingTerminal;
       cliOverlay.style.display = showingTerminal ? 'none' : 'flex';
+      termOutput.style.display = showingTerminal ? '' : 'none';
       cliToggleTerminal.textContent = showingTerminal ? 'Show Chat' : 'Show Terminal';
+      // Show/hide banner when terminal is visible and CLI is active
+      cliBanner.classList.toggle('visible', showingTerminal && cliActive);
+      if (showingTerminal && fitAddon) fitAddon.fit();
+    });
+
+    cliBannerContinue.addEventListener('click', () => {
+      showingTerminal = false;
+      cliOverlay.style.display = 'flex';
+      termOutput.style.display = 'none';
+      cliToggleTerminal.textContent = 'Show Terminal';
+      cliBanner.classList.remove('visible');
+    });
+
+    cliBannerExit.addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN && currentTab) {
+        // Send /exit to Claude, then clear the terminal
+        ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: '/exit\r' }));
+        setTimeout(() => {
+          ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: 'clear && clear\r' }));
+        }, 1000);
+      }
+      // Hide overlay and banner
+      cliActive = false;
+      cliOverlay.style.display = 'none';
+      termOutput.style.display = '';
+      cliBanner.classList.remove('visible');
+      showingTerminal = false;
+      if (fitAddon) fitAddon.fit();
     });
 
     function handleCLIStatus(active, programName) {
       cliActive = active;
       if (active) {
         cliProgramName.textContent = programName || 'CLI';
-        cliOverlay.style.display = showingTerminal ? 'none' : 'flex';
+        cliOverlay.style.display = 'flex';
+        showingTerminal = false;
+        cliToggleTerminal.textContent = 'Show Terminal';
         cliThinking.style.display = 'inline';
+        cliThinking.textContent = 'Waiting for input...';
         cliMessages.innerHTML = '';
+        termOutput.style.display = 'none';
+        cliBanner.classList.remove('visible');
       } else {
         cliOverlay.style.display = 'none';
         showingTerminal = false;
+        termOutput.style.display = '';
+        cliBanner.classList.remove('visible');
+        if (fitAddon) fitAddon.fit();
       }
     }
+
+    let thinkingEl = null;
+    let lastAssistantEl = null;
+    let shownUserInputs = new Set();
 
     function handleCLIConversation(event) {
       if (!cliActive) return;
 
       if (event.type === 'user_input') {
-        cliThinking.style.display = 'inline';
+        // Don't duplicate — sendCommand already showed this
+        const key = event.content.trim().toLowerCase();
+        if (shownUserInputs.has(key)) {
+          return;
+        }
         addCLIMessage('user', event.content);
+        showThinkingIndicator();
       } else if (event.type === 'assistant_response') {
-        cliThinking.style.display = 'none';
-        addCLIMessage('assistant', event.content);
+        removeThinkingIndicator();
+        // Update or create assistant message
+        if (lastAssistantEl) {
+          lastAssistantEl.querySelector('.cli-msg-content').textContent = event.content;
+        } else {
+          addCLIMessage('assistant', event.content);
+        }
+        lastAssistantEl = null;
+        cliMessages.scrollTop = cliMessages.scrollHeight;
+      }
+    }
+
+    function showThinkingIndicator() {
+      removeThinkingIndicator();
+      cliThinking.style.display = 'inline';
+      cliThinking.textContent = 'Thinking...';
+
+      thinkingEl = document.createElement('div');
+      thinkingEl.className = 'cli-msg cli-thinking-msg';
+      thinkingEl.innerHTML = `
+        <div class="cli-msg-role assistant">${escapeHtml(cliProgramName.textContent)}</div>
+        <div class="cli-msg-content" style="color: var(--text-dim); font-style: italic;">
+          <span class="thinking-dots">Thinking</span>
+        </div>
+      `;
+      cliMessages.appendChild(thinkingEl);
+      cliMessages.scrollTop = cliMessages.scrollHeight;
+    }
+
+    function removeThinkingIndicator() {
+      cliThinking.style.display = 'none';
+      if (thinkingEl) {
+        thinkingEl.remove();
+        thinkingEl = null;
       }
     }
 
     function addCLIMessage(role, content) {
+      removeThinkingIndicator();
       const msg = document.createElement('div');
       msg.className = 'cli-msg';
+      msg.dataset.role = role;
+      msg.dataset.content = content;
       msg.innerHTML = `
-        <div class="cli-msg-role ${role}">${role === 'user' ? 'You' : cliProgramName.textContent}</div>
+        <div class="cli-msg-role ${role}">${role === 'user' ? 'You' : escapeHtml(cliProgramName.textContent)}</div>
         <div class="cli-msg-content">${escapeHtml(content)}</div>
       `;
       cliMessages.appendChild(msg);
       cliMessages.scrollTop = cliMessages.scrollHeight;
+
+      if (role === 'assistant') {
+        lastAssistantEl = msg;
+      }
     }
 
     function escapeHtml(str) {
       const div = document.createElement('div');
       div.textContent = str;
       return div.innerHTML;
+    }
+
+    // ── Disconnect notice ────────────
+    function showDisconnectNotice() {
+      const overlay = document.createElement('div');
+      overlay.className = 'disconnect-overlay';
+      overlay.innerHTML = `
+        <div class="disconnect-card">
+          <h3>Disconnected</h3>
+          <p>Connection to HELM was lost. Reconnecting...</p>
+          <button id="disconnectReconnectBtn">Reconnect Now</button>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      overlay.querySelector('#disconnectReconnectBtn').addEventListener('click', () => {
+        overlay.remove();
+        connect(null);
+      });
+
+      // Auto-remove if reconnect succeeds
+      const checkInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          clearInterval(checkInterval);
+          overlay.remove();
+        }
+      }, 1000);
+
+      // Auto-remove after 30s regardless
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (overlay.parentNode) overlay.remove();
+      }, 30000);
     }
 
     // ── Terminal output ───────────────
@@ -773,8 +1015,8 @@
       term.loadAddon(fitAddon);
       term.open(termOutput);
       // Delay fit to ensure container has final size
-      setTimeout(() => fitAddon.fit(), 100);
-      setTimeout(() => fitAddon.fit(), 500);
+      setTimeout(() => { fitAddon.fit(); term.scrollToBottom(); }, 200);
+      setTimeout(() => { fitAddon.fit(); term.scrollToBottom(); }, 600);
 
       // Resize on orientation change or window resize
       window.addEventListener('resize', () => {
@@ -798,6 +1040,7 @@
     function appendOutput(data) {
       if (!term) initTerminal();
       term.write(data);
+      term.scrollToBottom();
     }
 
     // ── Tabs ──────────────────────────
@@ -847,12 +1090,17 @@
       if (!cmd && !currentTab) return;
 
       if (ws && ws.readyState === WebSocket.OPEN && currentTab) {
+        // Show input immediately in CLI chat view
+        if (cliActive) {
+          shownUserInputs.add(cmd.trim().toLowerCase());
+          addCLIMessage('user', cmd);
+          showThinkingIndicator();
+        }
+
         // Single character inputs (1, 2, 3, y, n, etc.) send raw without Enter
-        // This handles TUI prompts like Claude Code's selection menus
         if (cmd.length === 1 && /^[0-9a-zA-Z]$/.test(cmd)) {
           ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: cmd }));
         } else {
-          // Multi-character: send with Enter
           ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: cmd + '\r' }));
         }
         cmdInput.value = '';
@@ -911,6 +1159,12 @@
         ws.send(JSON.stringify({ type: 'ping' }));
       }
     }, 30000);
+
+    // ── Resize handler ────────
+    window.addEventListener('resize', () => {
+      if (fitAddon) fitAddon.fit();
+      if (term) term.scrollToBottom();
+    });
   </script>
 </body>
 </html>

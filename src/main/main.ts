@@ -143,12 +143,10 @@ function createWindow() {
   // Forward CLI conversation events (Claude responses) to mobile clients
   ptyManager.cliWatcher.onEvent((event) => {
     if (!mobileServer) return;
-    // Find which tab this CLI session belongs to
-    for (const [tabId, info] of (ptyManager as any).instances) {
-      if (info.activeCLI?.cliSessionId === event.cliSessionId) {
-        mobileServer.broadcastCLIEvent(tabId, { type: event.type, content: event.content });
-        break;
-      }
+    const tabId = ptyManager!.getTabForCLISession(event.cliSessionId);
+    if (tabId) {
+      console.log(`📱 CLI event → mobile: ${event.type} (${event.content.slice(0, 60)}...)`);
+      mobileServer.broadcastCLIEvent(tabId, { type: event.type, content: event.content });
     }
   });
 

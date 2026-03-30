@@ -87,6 +87,9 @@ export class MobileAccessServer {
   private tabBuffers: Map<string, string> = new Map();
   private static MAX_BUFFER_SIZE = 50000;
 
+  // Track which tabs have active CLI programs (suppress raw PTY for these)
+  private cliActiveTabs: Set<string> = new Set();
+
   constructor() {
     this.settings = this.loadSettings();
   }
@@ -657,10 +660,17 @@ export class MobileAccessServer {
 
     client.ws.send(JSON.stringify({ type: 'subscribed', tabId }));
 
-    // Send buffered output so the client catches up with the current session
+    // Tell client if a CLI program is active in this tab
+    if (this.cliActiveTabs.has(tabId)) {
+      client.ws.send(JSON.stringify({ type: 'cliStatus', tabId, active: true, programName: 'Claude Code' }));
+    }
+
+    // Send recent buffered output so the client sees the current session
+    // Only send the last ~3000 chars (roughly one screenful) to avoid replay spam
     const buffer = this.tabBuffers.get(tabId);
     if (buffer && client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify({ type: 'output', tabId, data: buffer }));
+      const recent = buffer.length > 3000 ? buffer.slice(-3000) : buffer;
+      client.ws.send(JSON.stringify({ type: 'output', tabId, data: recent }));
     }
   }
 
@@ -750,6 +760,11 @@ export class MobileAccessServer {
 
   /** Notify mobile clients that a CLI program started/stopped in a tab */
   broadcastCLIStatus(tabId: string, active: boolean, programName?: string): void {
+    if (active) {
+      this.cliActiveTabs.add(tabId);
+    } else {
+      this.cliActiveTabs.delete(tabId);
+    }
     const msg = JSON.stringify({ type: 'cliStatus', tabId, active, programName });
     for (const [_, client] of this.clients) {
       if (client.subscribedTab === tabId && client.ws.readyState === WebSocket.OPEN) {

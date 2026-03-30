@@ -259,6 +259,16 @@ export class PTYManager {
   }
 
   /** Returns the active CLI program for a tab, if any */
+  /** Find which tab a CLI session belongs to */
+  getTabForCLISession(cliSessionId: number): string | null {
+    for (const [tabId, instance] of this.instances) {
+      if (instance.activeCLI?.cliSessionId === cliSessionId) {
+        return tabId;
+      }
+    }
+    return null;
+  }
+
   getActiveCLI(tabId: string): { programId: string; programName: string } | null {
     const cli = this.instances.get(tabId)?.activeCLI;
     if (!cli) return null;
