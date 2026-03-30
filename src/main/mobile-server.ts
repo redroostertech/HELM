@@ -665,13 +665,8 @@ export class MobileAccessServer {
       client.ws.send(JSON.stringify({ type: 'cliStatus', tabId, active: true, programName: 'Claude Code' }));
     }
 
-    // Send recent buffered output so the client sees the current session
-    // Only send the last ~3000 chars (roughly one screenful) to avoid replay spam
-    const buffer = this.tabBuffers.get(tabId);
-    if (buffer && client.ws.readyState === WebSocket.OPEN) {
-      const recent = buffer.length > 3000 ? buffer.slice(-3000) : buffer;
-      client.ws.send(JSON.stringify({ type: 'output', tabId, data: recent }));
-    }
+    // Don't send catch-up buffer — the desktop PTY's cursor positions don't
+    // match mobile dimensions. Mobile starts fresh and sees new output as it arrives.
   }
 
   private handleInput(tabId: string, data: string): void {

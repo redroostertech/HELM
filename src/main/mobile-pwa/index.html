@@ -33,6 +33,7 @@
 
     html, body {
       height: 100%;
+      height: -webkit-fill-available;
       background: var(--bg);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
@@ -138,6 +139,7 @@
     /* ── Terminal Screen ──────────────── */
     #terminalScreen {
       position: relative;
+      min-height: 0;
     }
 
     .term-header {
@@ -195,20 +197,30 @@
       color: var(--danger);
     }
 
-    /* Terminal output — xterm.js container */
+    /* Terminal output — xterm.js container
+       min-height:0 + overflow:hidden: flex children on iOS otherwise measure as unbounded
+       height, FitAddon allocates huge row counts, scrollToBottom() leaves empty black space
+       above the few real lines. Scrolling is handled inside xterm's viewport. */
     .term-output {
       flex: 1;
+      min-height: 0;
+      min-width: 0;
       overflow: hidden;
       padding: 0;
-      line-height: 1.4;
-      white-space: pre-wrap;
-      word-break: break-all;
+      touch-action: pan-y;
       background: var(--bg);
+      position: relative;
+      /* No line-height / white-space / word-break here — xterm.js owns text layout */
+    }
+
+    .term-output .xterm {
+      width: 100%;
+      height: 100%;
     }
 
     /* Smart keyboard bar */
     .key-bar {
-      display: flex;
+      display: none;
       gap: 4px;
       padding: 6px 8px;
       background: var(--surface);
@@ -248,7 +260,7 @@
 
     /* Command input */
     .cmd-input-bar {
-      display: flex;
+      display: none;
       gap: 8px;
       padding: 8px;
       padding-bottom: max(8px, var(--safe-bottom));
@@ -791,7 +803,17 @@
 
         case 'subscribed':
           currentTab = msg.tabId;
-          if (term) term.clear();
+          if (term) {
+            term.reset();
+          }
+          // Match PTY to xterm dimensions (see fitAndNotifyPty); run after layout
+          setTimeout(fitAndNotifyPty, 0);
+          // Send an empty Enter to trigger a fresh prompt
+          if (ws && ws.readyState === WebSocket.OPEN && currentTab) {
+            setTimeout(() => {
+              ws.send(JSON.stringify({ type: 'input', tabId: currentTab, data: '\r' }));
+            }, 300);
+          }
           break;
 
         case 'output':
@@ -831,7 +853,7 @@
       cliToggleTerminal.textContent = showingTerminal ? 'Show Chat' : 'Show Terminal';
       // Show/hide banner when terminal is visible and CLI is active
       cliBanner.classList.toggle('visible', showingTerminal && cliActive);
-      if (showingTerminal && fitAddon) fitAddon.fit();
+      if (showingTerminal) fitAndNotifyPty();
     });
 
     cliBannerContinue.addEventListener('click', () => {
@@ -856,7 +878,7 @@
       termOutput.style.display = '';
       cliBanner.classList.remove('visible');
       showingTerminal = false;
-      if (fitAddon) fitAddon.fit();
+      fitAndNotifyPty();
     });
 
     function handleCLIStatus(active, programName) {
@@ -876,7 +898,7 @@
         showingTerminal = false;
         termOutput.style.display = '';
         cliBanner.classList.remove('visible');
-        if (fitAddon) fitAddon.fit();
+        fitAndNotifyPty();
       }
     }
 
@@ -995,6 +1017,32 @@
     // ── xterm.js terminal emulator ──
     let term = null;
     let fitAddon = null;
+    let termResizeObserver = null;
+    let ptyResizeDebounceTimer = null;
+
+    /**
+     * Keep the OS PTY dimensions in sync with this xterm. If we only fit() locally
+     * but never resize the PTY, the shell cursor stays on e.g. row 23 of a 24-row
+     * session while xterm renders 40+ rows — empty rows above the prompt look like
+     * a huge black gap. Desktop resizes the PTY on every fit; mobile must too.
+     */
+    function fitAndNotifyPty() {
+      if (!fitAddon || !term) return;
+      try {
+        fitAddon.fit();
+        term.scrollToBottom();
+      } catch (_) {
+        return;
+      }
+      if (ws && ws.readyState === WebSocket.OPEN && currentTab) {
+        ws.send(JSON.stringify({ type: 'resize', tabId: currentTab, cols: term.cols, rows: term.rows }));
+      }
+    }
+
+    function scheduleFitAndNotifyPty() {
+      clearTimeout(ptyResizeDebounceTimer);
+      ptyResizeDebounceTimer = setTimeout(fitAndNotifyPty, 16);
+    }
 
     function initTerminal() {
       if (term) return;
@@ -1014,20 +1062,20 @@
       fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
       term.open(termOutput);
-      // Delay fit to ensure container has final size
-      setTimeout(() => { fitAddon.fit(); term.scrollToBottom(); }, 200);
-      setTimeout(() => { fitAddon.fit(); term.scrollToBottom(); }, 600);
+      if (typeof ResizeObserver !== 'undefined') {
+        termResizeObserver = new ResizeObserver(() => {
+          scheduleFitAndNotifyPty();
+        });
+        termResizeObserver.observe(termOutput);
+      }
+      // Delay fit to ensure container has final size (e.g. after switching from pairing screen)
+      setTimeout(fitAndNotifyPty, 200);
+      setTimeout(fitAndNotifyPty, 600);
 
-      // Resize on orientation change or window resize
-      window.addEventListener('resize', () => {
-        if (fitAddon) {
-          fitAddon.fit();
-          // Notify PTY of new dimensions
-          if (ws && ws.readyState === WebSocket.OPEN && currentTab && term) {
-            ws.send(JSON.stringify({ type: 'resize', tabId: currentTab, cols: term.cols, rows: term.rows }));
-          }
-        }
-      });
+      window.addEventListener('resize', scheduleFitAndNotifyPty);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', scheduleFitAndNotifyPty);
+      }
 
       // Forward user keystrokes to PTY (for interactive TUI apps)
       term.onData((data) => {
@@ -1039,8 +1087,9 @@
 
     function appendOutput(data) {
       if (!term) initTerminal();
-      term.write(data);
-      term.scrollToBottom();
+      term.write(data, () => {
+        term.scrollToBottom();
+      });
     }
 
     // ── Tabs ──────────────────────────
@@ -1160,11 +1209,6 @@
       }
     }, 30000);
 
-    // ── Resize handler ────────
-    window.addEventListener('resize', () => {
-      if (fitAddon) fitAddon.fit();
-      if (term) term.scrollToBottom();
-    });
   </script>
 </body>
 </html>
