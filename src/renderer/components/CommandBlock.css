@@ -47,6 +47,9 @@
   cursor: pointer;
   flex-shrink: 0;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .cb-toggle:hover {
@@ -136,15 +139,136 @@
   border: none;
   color: #888;
   font-size: 13px;
-  padding: 2px 6px;
+  padding: 4px 6px;
   cursor: pointer;
   border-radius: 3px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.cb-action-btn:hover {
+.cb-action-btn:hover:not(:disabled) {
   background: #3c3c3c;
   color: #d4d4d4;
+}
+
+.cb-action-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.cb-action-run:hover:not(:disabled) { color: #0dbc79; }
+.cb-action-delete:hover:not(:disabled) { color: #f48771; background: #5a2323; }
+
+/* Step number badge */
+.cb-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background: #333;
+  color: #888;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.command-block.cb-active .cb-step-num { background: #0dbc79; color: #0a1a12; }
+
+/* Reorder controls */
+.cb-reorder {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.cb-reorder-btn {
+  background: transparent;
+  border: none;
+  color: #666;
+  width: 16px;
+  height: 12px;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 2px;
+}
+
+.cb-reorder-btn:hover:not(:disabled) { color: #d4d4d4; background: #333; }
+.cb-reorder-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+
+.cb-placeholder { color: #666; font-style: italic; }
+
+/* Name (editable label) */
+.cb-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #d4d4d4;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: text;
+}
+
+.cb-name:hover { background: #333; }
+
+.cb-name-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #d4d4d4;
+  background: #1e1e1e;
+  border: 1px solid #0e639c;
+  border-radius: 3px;
+  padding: 2px 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+/* Body — command display/edit + output */
+.cb-body {
+  padding: 8px 10px 10px;
+  cursor: default;
+}
+
+.cb-body .cb-command {
+  margin: 0;
+  padding: 6px 8px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  font-family: Menlo, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  color: #d4d4d4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+  border: 1px solid transparent;
+}
+
+.cb-body .cb-command:hover { border-color: #444; }
+
+.cb-cmd-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  background: #1a1a1a;
+  border: 1px solid #0e639c;
+  border-radius: 4px;
+  font-family: Menlo, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+  color: #d4d4d4;
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
 }
 
 /* Search bar */

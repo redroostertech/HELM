@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('pty:exit', handler);
     return () => ipcRenderer.removeListener('pty:exit', handler);
   },
+  onPtyCommandCaptured: (callback: (tabId: string, command: string) => void) => {
+    const handler = (_: any, tabId: string, command: string) => callback(tabId, command);
+    ipcRenderer.on('pty:command-captured', handler);
+    return () => ipcRenderer.removeListener('pty:command-captured', handler);
+  },
   ptyRecentCommands: (tabId: string) => ipcRenderer.invoke('pty:recentCommands', tabId),
   ptyMemoryUsage: () => ipcRenderer.invoke('pty:memoryUsage'),
 
@@ -172,6 +177,7 @@ export interface ElectronAPI {
   ptyKill: (tabId?: string) => Promise<void>;
   onPtyData: (callback: (tabId: string, data: string) => void) => () => void;
   onPtyExit: (callback: (tabId: string, exitCode: number) => void) => () => void;
+  onPtyCommandCaptured: (callback: (tabId: string, command: string) => void) => () => void;
   ptyRecentCommands: (tabId: string) => Promise<string[]>;
   ptyMemoryUsage: () => Promise<Record<string, number>>;
 

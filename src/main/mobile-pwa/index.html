@@ -210,6 +210,12 @@
       touch-action: pan-y;
       background: var(--bg);
       position: relative;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .term-output .xterm-viewport {
+      -webkit-overflow-scrolling: touch !important;
+      overscroll-behavior: contain;
       /* No line-height / white-space / word-break here — xterm.js owns text layout */
     }
 
@@ -883,23 +889,24 @@
 
     function handleCLIStatus(active, programName) {
       cliActive = active;
-      if (active) {
-        cliProgramName.textContent = programName || 'CLI';
-        cliOverlay.style.display = 'flex';
-        showingTerminal = false;
-        cliToggleTerminal.textContent = 'Show Terminal';
-        cliThinking.style.display = 'inline';
-        cliThinking.textContent = 'Waiting for input...';
-        cliMessages.innerHTML = '';
-        termOutput.style.display = 'none';
-        cliBanner.classList.remove('visible');
-      } else {
-        cliOverlay.style.display = 'none';
-        showingTerminal = false;
-        termOutput.style.display = '';
-        cliBanner.classList.remove('visible');
-        fitAndNotifyPty();
-      }
+      // Disabled for now — let xterm handle everything natively
+      // if (active) {
+      //   cliProgramName.textContent = programName || 'CLI';
+      //   cliOverlay.style.display = 'flex';
+      //   showingTerminal = false;
+      //   cliToggleTerminal.textContent = 'Show Terminal';
+      //   cliThinking.style.display = 'inline';
+      //   cliThinking.textContent = 'Waiting for input...';
+      //   cliMessages.innerHTML = '';
+      //   termOutput.style.display = 'none';
+      //   cliBanner.classList.remove('visible');
+      // } else {
+      //   cliOverlay.style.display = 'none';
+      //   showingTerminal = false;
+      //   termOutput.style.display = '';
+      //   cliBanner.classList.remove('visible');
+      //   if (fitAddon) fitAddon.fit();
+      // }
     }
 
     let thinkingEl = null;
@@ -1048,7 +1055,7 @@
       if (term) return;
       term = new Terminal({
         cursorBlink: true,
-        fontSize: 11,
+        fontSize: 14,
         fontFamily: "'Menlo', 'SF Mono', 'Cascadia Code', monospace",
         theme: {
           background: '#0a0a0a',
@@ -1058,6 +1065,9 @@
         },
         scrollback: 5000,
         convertEol: false,
+        smoothScrollDuration: 0,
+        fastScrollSensitivity: 10,
+        scrollSensitivity: 3,
       });
       fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
@@ -1074,7 +1084,13 @@
 
       window.addEventListener('resize', scheduleFitAndNotifyPty);
       if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', scheduleFitAndNotifyPty);
+        const syncViewportHeight = () => {
+          const h = window.visualViewport.height;
+          document.body.style.height = h + 'px';
+          scheduleFitAndNotifyPty();
+        };
+        window.visualViewport.addEventListener('resize', syncViewportHeight);
+        syncViewportHeight();
       }
 
       // Forward user keystrokes to PTY (for interactive TUI apps)

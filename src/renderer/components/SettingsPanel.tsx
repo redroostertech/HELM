@@ -484,7 +484,25 @@ export default function SettingsPanel({ isOpen, onClose, onSettingsChange, curre
 
         {/* Mobile Access */}
         <section className="settings-section">
-          <h3>Mobile Access</h3>
+          <h3>
+            Mobile Access
+            <span style={{
+              marginLeft: 8,
+              padding: '2px 8px',
+              background: '#c07020',
+              color: '#fff',
+              fontSize: 10,
+              fontWeight: 600,
+              borderRadius: 4,
+              letterSpacing: '0.5px',
+              verticalAlign: 'middle',
+            }}>
+              BETA
+            </span>
+          </h3>
+          <p className="settings-hint" style={{ marginTop: -4, marginBottom: 12, fontSize: 12 }}>
+            This feature is still in beta — expect rough edges and breaking changes.
+          </p>
           {!mobileFeature ? (
             <div className="byok-promo">
               <p className="settings-hint" style={{ marginTop: 0, marginBottom: 12 }}>

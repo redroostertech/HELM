@@ -124,12 +124,16 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
   }, [autocompleteAllowed]);
 
   const handleToggleBlocks = useCallback(() => {
+    console.log('[Blocks] click — featureAllowed:', featureAllowed, 'blocksEnabled:', blocksEnabled, 'blocksOpen:', blocksOpen);
     if (featureAllowed) {
-      setBlocksOpen(prev => !prev);
+      setBlocksOpen(prev => {
+        console.log('[Blocks] toggling to:', !prev);
+        return !prev;
+      });
     } else {
       setShowUpgrade(true);
     }
-  }, [featureAllowed]);
+  }, [featureAllowed, blocksEnabled, blocksOpen]);
 
   // Refit terminal when blocks panel toggles
   useEffect(() => {
@@ -466,7 +470,12 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
         onClick={handleToggleBlocks}
         title="Toggle Command Blocks (v1.1)"
       >
-        <span className="cb-toggle-icon">{'\u2593'}</span>
+        <svg className="cb-toggle-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
+        </svg>
         Blocks
       </button>
 
@@ -494,7 +503,7 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
         </div>
 
         {/* Command Blocks overlay panel */}
-        {blocksEnabled && blocksOpen && (
+        {blocksEnabled && (
           <CommandBlockOverlay
             tabId={tabId}
             theme={theme}

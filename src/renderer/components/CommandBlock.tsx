@@ -1,178 +1,176 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import './CommandBlock.css';
 
-export interface CommandBlockData {
+const IconCopy = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="11" height="11" rx="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+
+const IconCheck = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+
+const IconRun = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M7 5v14l12-7z" />
+  </svg>
+);
+
+const IconTrash = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 6h18" />
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+const IconUp = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m18 15-6-6-6 6" />
+  </svg>
+);
+
+const IconDown = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+
+const IconChevron = ({ open }: { open: boolean }) => (
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+    style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 120ms' }}>
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+);
+
+export interface StepData {
   id: string;
   command: string;
   output: string;
-  timestamp: Date;
-  exitCode?: number;
-  workingDir?: string;
-  isActive?: boolean; // true if command is still running
+  isActive?: boolean;
 }
 
 interface CommandBlockProps {
-  block: CommandBlockData;
-  isSelected: boolean;
-  onSelect: (id: string) => void;
+  step: StepData;
+  index: number;
+  isFirst: boolean;
+  isLast: boolean;
   theme: 'dark' | 'light';
+  onEdit: (id: string, command: string) => void;
+  onDelete: (id: string) => void;
+  onRun: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
 }
 
-export default function CommandBlock({ block, isSelected, onSelect, theme }: CommandBlockProps) {
-  const [collapsed, setCollapsed] = useState(false);
+export default function CommandBlock({ step, index, isFirst, isLast, theme, onEdit, onDelete, onRun, onMoveUp, onMoveDown }: CommandBlockProps) {
+  const [collapsed, setCollapsed] = useState(!step.output);
   const [copied, setCopied] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
+  const [editing, setEditing] = useState(!step.command);
+  const [draft, setDraft] = useState(step.command);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const outputRef = useRef<HTMLPreElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => { setDraft(step.command); }, [step.command]);
   useEffect(() => {
-    if (showSearch && searchInputRef.current) {
-      searchInputRef.current.focus();
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
     }
-  }, [showSearch]);
+  }, [editing]);
 
-  // Auto-scroll to bottom while command is active
   useEffect(() => {
-    if (block.isActive && outputRef.current && !collapsed) {
+    if (step.isActive && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
-  }, [block.output, block.isActive, collapsed]);
+  }, [step.output, step.isActive]);
 
-  const handleCopy = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const text = block.output
-      ? `$ ${block.command}\n${block.output}`
-      : `$ ${block.command}`;
-    await navigator.clipboard.writeText(text);
+  const commit = useCallback(() => {
+    const trimmed = draft.trim();
+    if (trimmed !== step.command) onEdit(step.id, trimmed);
+    setEditing(false);
+  }, [draft, step.command, step.id, onEdit]);
+
+  const handleCopy = useCallback(async () => {
+    await navigator.clipboard.writeText(step.command);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [block.command, block.output]);
-
-  const handleToggle = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setCollapsed(prev => !prev);
-  }, []);
-
-  const handleSearchToggle = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowSearch(prev => !prev);
-    if (showSearch) {
-      setSearchTerm('');
-    }
-  }, [showSearch]);
-
-  const highlightOutput = (text: string, term: string): React.ReactNode => {
-    if (!term) return text;
-    const parts = text.split(new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
-    return parts.map((part, i) =>
-      part.toLowerCase() === term.toLowerCase()
-        ? <mark key={i} className="cb-highlight">{part}</mark>
-        : part
-    );
-  };
-
-  const matchCount = searchTerm
-    ? (block.output.match(new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')) || []).length
-    : 0;
-
-  const timeFmt = block.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const outputLines = block.output ? block.output.split('\n').length : 0;
+  }, [step.command]);
 
   return (
-    <div
-      className={`command-block ${isSelected ? 'cb-selected' : ''} ${block.isActive ? 'cb-active' : ''}`}
-      onClick={() => onSelect(block.id)}
-      data-theme={theme}
-    >
-      {/* Command header */}
+    <div className={`command-block ${step.isActive ? 'cb-active' : ''}`} data-theme={theme}>
       <div className="cb-header">
-        <button
-          className="cb-toggle"
-          onClick={handleToggle}
-          title={collapsed ? 'Expand output' : 'Collapse output'}
-          aria-label={collapsed ? 'Expand output' : 'Collapse output'}
-        >
-          {collapsed ? '\u25B6' : '\u25BC'}
-        </button>
-        <span className="cb-prompt">$</span>
-        <code className="cb-command">{block.command}</code>
+        <span className="cb-step-num">{index + 1}</span>
+        <div className="cb-reorder">
+          <button className="cb-reorder-btn" onClick={() => onMoveUp(step.id)} disabled={isFirst} title="Move up" aria-label="Move up">
+            <IconUp />
+          </button>
+          <button className="cb-reorder-btn" onClick={() => onMoveDown(step.id)} disabled={isLast} title="Move down" aria-label="Move down">
+            <IconDown />
+          </button>
+        </div>
+        {step.output && (
+          <button className="cb-toggle" onClick={() => setCollapsed(c => !c)} title={collapsed ? 'Show output' : 'Hide output'}>
+            <IconChevron open={!collapsed} />
+          </button>
+        )}
         <span className="cb-meta">
-          {block.workingDir && (
-            <span className="cb-dir" title={block.workingDir}>
-              {block.workingDir.split('/').pop() || block.workingDir}
-            </span>
-          )}
-          <span className="cb-time">{timeFmt}</span>
-          {block.exitCode !== undefined && block.exitCode !== 0 && (
-            <span className="cb-exit-error" title={`Exit code: ${block.exitCode}`}>
-              {block.exitCode}
-            </span>
-          )}
-          {block.isActive && <span className="cb-running">running</span>}
+          {step.isActive && <span className="cb-running">running</span>}
         </span>
         <div className="cb-actions">
-          {block.output && (
-            <button
-              className="cb-action-btn"
-              onClick={handleSearchToggle}
-              title="Search output"
-              aria-label="Search output"
-            >
-              {'\u{1F50D}'}
-            </button>
-          )}
           <button
-            className="cb-action-btn"
-            onClick={handleCopy}
-            title="Copy block"
-            aria-label="Copy block"
+            className="cb-action-btn cb-action-run"
+            onClick={() => onRun(step.id)}
+            disabled={!step.command.trim() || step.isActive}
+            title="Run this step"
+            aria-label="Run this step"
           >
-            {copied ? '\u2713' : '\u{1F4CB}'}
+            <IconRun />
+          </button>
+          <button className="cb-action-btn" onClick={handleCopy} disabled={!step.command.trim()} title="Copy command" aria-label="Copy command">
+            {copied ? <IconCheck /> : <IconCopy />}
+          </button>
+          <button className="cb-action-btn cb-action-delete" onClick={() => onDelete(step.id)} title="Delete step" aria-label="Delete step">
+            <IconTrash />
           </button>
         </div>
       </div>
 
-      {/* Search bar */}
-      {showSearch && (
-        <div className="cb-search-bar">
-          <input
-            ref={searchInputRef}
-            type="text"
-            className="cb-search-input"
-            placeholder="Search output..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
+      <div className="cb-body">
+        {editing ? (
+          <textarea
+            ref={inputRef}
+            className="cb-cmd-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === 'Escape') {
-                setShowSearch(false);
-                setSearchTerm('');
-              }
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+              if (e.key === 'Escape') { setDraft(step.command); setEditing(false); }
             }}
+            rows={Math.min(6, Math.max(1, draft.split('\n').length))}
+            spellCheck={false}
+            placeholder="Enter a command…"
           />
-          {searchTerm && (
-            <span className="cb-search-count">
-              {matchCount} match{matchCount !== 1 ? 'es' : ''}
-            </span>
-          )}
-        </div>
-      )}
+        ) : (
+          <pre
+            className="cb-command"
+            onClick={() => setEditing(true)}
+            title="Click to edit"
+          >
+            <span className="cb-prompt">$</span> {step.command || <span className="cb-placeholder">click to enter command…</span>}
+          </pre>
+        )}
 
-      {/* Output */}
-      {block.output && !collapsed && (
-        <pre ref={outputRef} className="cb-output">
-          {searchTerm ? highlightOutput(block.output, searchTerm) : block.output}
-        </pre>
-      )}
-
-      {/* Collapsed summary */}
-      {block.output && collapsed && (
-        <div className="cb-collapsed-summary">
-          {outputLines} line{outputLines !== 1 ? 's' : ''} of output
-        </div>
-      )}
+        {step.output && !collapsed && (
+          <pre ref={outputRef} className="cb-output">{step.output}</pre>
+        )}
+      </div>
     </div>
   );
 }

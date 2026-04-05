@@ -35,10 +35,16 @@ export class PTYManager {
   public cliWatcher: CLIConversationWatcher;
   private hasReattached = false;
   private cliStatusCallbacks: Array<(tabId: string, active: boolean, programName?: string) => void> = [];
+  private commandCapturedCallbacks: Array<(tabId: string, command: string) => void> = [];
 
   /** Register callback for CLI program start/stop events */
   onCLIStatus(callback: (tabId: string, active: boolean, programName?: string) => void): void {
     this.cliStatusCallbacks.push(callback);
+  }
+
+  /** Register callback fired when a shell command is captured from user input */
+  onCommandCaptured(callback: (tabId: string, command: string) => void): void {
+    this.commandCapturedCallbacks.push(callback);
   }
 
   constructor(private db: DatabaseManager, customRegistry?: CLIProgram[]) {
@@ -409,8 +415,10 @@ export class PTYManager {
     if (!instance) return;
 
     const trimmedCommand = instance.currentCommand.trim();
+    // Clear immediately to prevent re-entrant double-capture when another
+    // \r/\n arrives from the PTY while we're awaiting saveCommand.
+    instance.currentCommand = '';
     if (!trimmedCommand || trimmedCommand.length < 2) {
-      instance.currentCommand = '';
       return;
     }
 
@@ -448,6 +456,11 @@ export class PTYManager {
       }
     }
 
+    // Notify renderer about the captured command (for Command Blocks, etc.)
+    for (const cb of this.commandCapturedCallbacks) {
+      try { cb(tabId, cleaned); } catch {}
+    }
+
     const commandId = await this.db.saveCommand(
       instance.sessionId!,
       cleaned,
@@ -462,7 +475,6 @@ export class PTYManager {
       this.startCLISession(tabId, program, commandId);
     }
 
-    instance.currentCommand = '';
     instance.outputBuffer = '';
   }
 

@@ -119,10 +119,18 @@ function createWindow() {
   if (!app.isPackaged) {
     const devServerUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173';
     mainWindow.loadURL(devServerUrl);
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  // Keyboard shortcut to toggle DevTools (Cmd+Option+I / Ctrl+Shift+I)
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.key.toLowerCase() === 'i' &&
+        ((input.meta && input.alt) || (input.control && input.shift))) {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
 
   // Initialize services
   db = new DatabaseManager();
@@ -137,6 +145,13 @@ function createWindow() {
   ptyManager.onCLIStatus((tabId, active, programName) => {
     if (mobileServer) {
       mobileServer.broadcastCLIStatus(tabId, active, programName);
+    }
+  });
+
+  // Forward captured commands to renderer (Command Blocks)
+  ptyManager.onCommandCaptured((tabId, command) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('pty:command-captured', tabId, command);
     }
   });
 
