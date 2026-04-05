@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './App.css';
 import AddressBar from './components/AddressBar';
 import TabBar, { TerminalTab } from './components/TabBar';
@@ -89,6 +89,11 @@ function App() {
   // AI features require authentication
   const isAuthenticated = authState.isAuthenticated;
 
+  // Keep a ref to the latest tabs so the helm CLI tabs-request handler
+  // (registered once on mount) can always read the current list.
+  const tabsRef = useRef(tabs);
+  useEffect(() => { tabsRef.current = tabs; }, [tabs]);
+
   // Persist tabs and notify mobile server
   useEffect(() => {
     saveTabs(tabs, activeTabId);
@@ -151,11 +156,36 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
 
+    // Listen for tabs spawned by the `helm` CLI (guard against old preload)
+    const cleanupCLITab = typeof window.electronAPI.onNewTabFromCLI === 'function'
+      ? window.electronAPI.onNewTabFromCLI(({ tabId, label }) => {
+          setTabs(prev => {
+            if (prev.some(t => t.id === tabId)) return prev;
+            return [...prev, { id: tabId, label, description: '', memoryMB: 0 }];
+          });
+          setActiveTabId(tabId);
+        })
+      : () => {};
+
+    // Reply to tab-list requests from the `helm list` CLI command
+    const cleanupTabsRequest = typeof window.electronAPI.onTabsRequest === 'function'
+      ? window.electronAPI.onTabsRequest((requestId: string) => {
+          const current = tabsRef.current.map(t => ({
+            id: t.id,
+            label: t.label,
+            description: t.description || '',
+          }));
+          window.electronAPI.sendTabsResponse?.(requestId, current);
+        })
+      : () => {};
+
     return () => {
       window.removeEventListener('show-delete-history-modal', handler);
       window.removeEventListener('keydown', handleKeyDown);
       cleanupAuth();
       cleanupLicense();
+      cleanupCLITab();
+      cleanupTabsRequest();
     };
   }, []);
 

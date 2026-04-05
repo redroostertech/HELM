@@ -168,6 +168,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('autocomplete:frequentCommands', limit),
   autocompletePathComplete: (partialPath: string, cwd: string) =>
     ipcRenderer.invoke('autocomplete:pathComplete', partialPath, cwd),
+
+  // HELM CLI (helm snapshot/open/run/list)
+  helmInstallCLI: () => ipcRenderer.invoke('helm:installCLI'),
+  onNewTabFromCLI: (callback: (info: { tabId: string; label: string }) => void) => {
+    const handler = (_: any, info: { tabId: string; label: string }) => callback(info);
+    ipcRenderer.on('helm:new-tab', handler);
+    return () => ipcRenderer.removeListener('helm:new-tab', handler);
+  },
+  onTabsRequest: (callback: (requestId: string) => void) => {
+    const handler = (_: any, requestId: string) => callback(requestId);
+    ipcRenderer.on('helm:requestTabs', handler);
+    return () => ipcRenderer.removeListener('helm:requestTabs', handler);
+  },
+  sendTabsResponse: (requestId: string, tabs: any[]) => {
+    ipcRenderer.send('helm:tabsResponse', requestId, tabs);
+  },
 });
 
 export interface ElectronAPI {
@@ -278,6 +294,12 @@ export interface ElectronAPI {
   autocompleteSearchHistory: (prefix: string, limit?: number) => Promise<string[]>;
   autocompleteFrequentCommands: (limit?: number) => Promise<string[]>;
   autocompletePathComplete: (partialPath: string, cwd: string) => Promise<string[]>;
+
+  // HELM CLI
+  helmInstallCLI: () => Promise<{ ok: boolean; path?: string; error?: string; note?: string }>;
+  onNewTabFromCLI: (callback: (info: { tabId: string; label: string }) => void) => () => void;
+  onTabsRequest: (callback: (requestId: string) => void) => () => void;
+  sendTabsResponse: (requestId: string, tabs: any[]) => void;
 }
 
 declare global {

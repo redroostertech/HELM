@@ -40,6 +40,12 @@
   "asarUnpack": [
     "node_modules/node-pty/**"
   ],
+  "extraResources": [
+    {
+      "from": "src/main/cli/helm",
+      "to": "cli/helm"
+    }
+  ],
   "mac": {
     "category": "public.app-category.developer-tools",
     "artifactName": "HELM-${version}-${arch}.${ext}",

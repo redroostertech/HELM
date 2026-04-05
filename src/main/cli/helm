@@ -1,0 +1,600 @@
+#!/usr/bin/env node
+/**
+ * helm — CLI shim for the HELM terminal app.
+ *
+ * Connects to the running HELM app via a Unix domain socket and sends
+ * newline-delimited JSON requests. If HELM is not running, launches it
+ * and waits for the socket to appear.
+ *
+ * This file is plain JS and uses only Node core modules so it runs
+ * without npm install.
+ */
+'use strict';
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const net = require('net');
+const { execSync, spawnSync } = require('child_process');
+
+// Shim version — bumped when the helm CLI protocol or features change.
+// If this diverges from the running app's version, `helm doctor` warns.
+const SHIM_VERSION = '1.0.0';
+
+const APP_SUPPORT = path.join(os.homedir(), 'Library', 'Application Support', 'Helm');
+const SOCKET_PATH = path.join(APP_SUPPORT, 'helm.sock');
+const SNAPSHOT_DIR = path.join(APP_SUPPORT, 'snapshots');
+
+// ── env filtering (allowlist with denylist second-pass) ──────────
+
+// Exact names that are always safe to forward
+const ALLOW_EXACT = new Set([
+  // locale / i18n
+  'LANG', 'LANGUAGE', 'LC_ALL', 'LC_COLLATE', 'LC_CTYPE', 'LC_MESSAGES',
+  'LC_MONETARY', 'LC_NUMERIC', 'LC_TIME', 'TZ',
+  // terminal / display
+  'TERM', 'COLORTERM', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
+  // paths
+  'PATH', 'MANPATH', 'INFOPATH', 'LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH',
+  'PKG_CONFIG_PATH', 'CPATH', 'LIBRARY_PATH',
+  // shell / user
+  'SHELL', 'EDITOR', 'VISUAL', 'PAGER', 'LESS', 'MANPAGER',
+  'USER', 'LOGNAME', 'HOME', 'HOSTNAME',
+  // platform
+  'OSTYPE', 'MACHTYPE', 'CPUTYPE', 'VENDOR', 'OSVERSION',
+  // version managers — paths (not tokens)
+  'NVM_DIR', 'NVM_BIN', 'NVM_INC', 'NVM_CD_FLAGS', 'NODE_PATH', 'NODE_VERSION',
+  'PYENV_ROOT', 'PYENV_VERSION', 'PYENV_SHELL',
+  'RBENV_ROOT', 'RBENV_VERSION', 'RBENV_SHELL',
+  'GOPATH', 'GOROOT', 'GOBIN', 'GOPROXY', 'GO111MODULE',
+  'CARGO_HOME', 'RUSTUP_HOME',
+  'JAVA_HOME', 'M2_HOME', 'GRADLE_HOME',
+  // python
+  'VIRTUAL_ENV', 'CONDA_PREFIX', 'CONDA_DEFAULT_ENV', 'CONDA_SHLVL',
+  'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE', 'PYTHONUNBUFFERED',
+  // ssh (socket paths — not keys)
+  'SSH_AUTH_SOCK', 'SSH_AGENT_PID',
+  // homebrew
+  'HOMEBREW_PREFIX', 'HOMEBREW_CELLAR', 'HOMEBREW_REPOSITORY',
+  // misc dev
+  'DOCKER_HOST', 'COMPOSE_PROJECT_NAME', 'KUBECONFIG',
+  'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_RUNTIME_DIR',
+  'TMPDIR', 'TMP', 'TEMP',
+]);
+
+// Prefixes of names that are always safe
+const ALLOW_PREFIXES = [
+  'LC_',   // additional locale categories
+  'LESS_', // less pager config
+];
+
+// Denylist (secondary — catches anything that slips through by name)
+const DENY_PATTERNS = [
+  /TOKEN/i, /KEY/i, /SECRET/i, /PASSWORD/i, /PASSWD/i, /PRIVATE/i,
+  /CREDENTIAL/i, /COOKIE/i, /BEARER/i, /_PAT$/i, /AUTH/i,
+];
+
+function isAllowed(name) {
+  if (ALLOW_EXACT.has(name)) return true;
+  for (const prefix of ALLOW_PREFIXES) {
+    if (name.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function looksLikeSecret(name) {
+  for (const pat of DENY_PATTERNS) {
+    if (pat.test(name)) return true;
+  }
+  return false;
+}
+
+function filterEnv(env) {
+  const out = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (typeof v !== 'string') continue;
+    if (!isAllowed(k)) continue;
+    // Second-pass defense: if an allowlisted name still matches a secret
+    // pattern (e.g. someone named their custom SSH_KEY_PATH), drop it.
+    if (looksLikeSecret(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+// ── history capture ───────────────────────────────────────────────
+
+function captureHistory() {
+  const shell = process.env.SHELL || '';
+  const home = os.homedir();
+  let histfile = '';
+  const isZsh = /zsh$/.test(shell);
+  const isBash = /bash$/.test(shell);
+
+  if (isZsh) {
+    histfile = process.env.HISTFILE || path.join(home, '.zsh_history');
+  } else if (isBash) {
+    histfile = process.env.HISTFILE || path.join(home, '.bash_history');
+  } else {
+    return [];
+  }
+
+  try {
+    if (!fs.existsSync(histfile)) return [];
+    const raw = fs.readFileSync(histfile, 'utf-8');
+    const lines = raw.split('\n').filter(Boolean);
+    // zsh extended history format: ": <epoch>:<duration>;<cmd>"
+    const parsed = lines.map(line => {
+      const m = line.match(/^:\s*\d+:\d+;(.*)$/);
+      return m ? m[1] : line;
+    }).filter(l => l.trim().length > 0);
+    return parsed.slice(-50);
+  } catch {
+    return [];
+  }
+}
+
+// ── git info ──────────────────────────────────────────────────────
+
+function captureGit(cwd) {
+  try {
+    const root = execSync('git rev-parse --show-toplevel', { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const branch = execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return { root, branch };
+  } catch {
+    return null;
+  }
+}
+
+// ── env-manager markers ───────────────────────────────────────────
+
+function captureEnvManagers() {
+  const out = {};
+  if (process.env.VIRTUAL_ENV) out.venv = process.env.VIRTUAL_ENV;
+  if (process.env.CONDA_PREFIX) out.conda = process.env.CONDA_PREFIX;
+  if (process.env.NVM_BIN) out.nvm = process.env.NVM_BIN;
+  if (process.env.PYENV_VERSION) out.pyenv = process.env.PYENV_VERSION;
+  if (process.env.RBENV_VERSION) out.rbenv = process.env.RBENV_VERSION;
+  return out;
+}
+
+// ── snapshot creation ─────────────────────────────────────────────
+
+function buildSnapshot(name) {
+  const cwd = process.cwd();
+  return {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    name: name || null,
+    shell: process.env.SHELL || '/bin/zsh',
+    cwd,
+    env: filterEnv(process.env),
+    history: captureHistory(),
+    git: captureGit(cwd),
+    envManagers: captureEnvManagers(),
+  };
+}
+
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+}
+
+function writeSnapshot(snapshot, name) {
+  ensureDir(SNAPSHOT_DIR);
+  const id = name || `snap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const filePath = path.join(SNAPSHOT_DIR, `${id}.json`);
+  fs.writeFileSync(filePath, JSON.stringify(snapshot, null, 2), { mode: 0o600 });
+  return { id, filePath };
+}
+
+// ── socket client ─────────────────────────────────────────────────
+
+function connectSocket(timeoutMs = 500) {
+  return new Promise((resolve, reject) => {
+    const sock = net.createConnection(SOCKET_PATH);
+    const to = setTimeout(() => {
+      sock.destroy();
+      reject(new Error('timeout'));
+    }, timeoutMs);
+    sock.once('connect', () => { clearTimeout(to); resolve(sock); });
+    sock.once('error', (err) => { clearTimeout(to); reject(err); });
+  });
+}
+
+function sendRequest(req) {
+  return new Promise(async (resolve, reject) => {
+    let sock;
+    try {
+      sock = await connectSocket();
+    } catch {
+      // HELM not running — launch it, then wait for socket
+      console.error('HELM is not running — launching it…');
+      spawnSync('open', ['-a', 'HELM'], { stdio: 'ignore' });
+
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        try {
+          sock = await connectSocket(500);
+          break;
+        } catch {
+          await new Promise(r => setTimeout(r, 300));
+        }
+      }
+      if (!sock) {
+        return reject(new Error('Could not connect to HELM after launch. Is HELM installed?'));
+      }
+    }
+
+    let buf = '';
+    sock.on('data', (d) => {
+      buf += d.toString('utf-8');
+      const nl = buf.indexOf('\n');
+      if (nl !== -1) {
+        const line = buf.slice(0, nl);
+        try {
+          const resp = JSON.parse(line);
+          sock.end();
+          resolve(resp);
+        } catch (e) {
+          sock.end();
+          reject(new Error('Invalid response from HELM: ' + e.message));
+        }
+      }
+    });
+    sock.on('error', (err) => reject(err));
+    sock.on('end', () => {
+      if (!buf) reject(new Error('HELM closed connection with no response'));
+    });
+
+    sock.write(JSON.stringify(req) + '\n');
+  });
+}
+
+// ── subcommands ───────────────────────────────────────────────────
+
+async function cmdSnapshot(args) {
+  let name = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--name' && i + 1 < args.length) {
+      name = args[i + 1];
+      i++;
+    }
+  }
+  const snap = buildSnapshot(name);
+  const { id, filePath } = writeSnapshot(snap, name);
+  console.log(`Snapshot saved: ${id}`);
+  console.log(`  ${filePath}`);
+
+  const resp = await sendRequest({ op: 'open-snapshot', snapshotPath: filePath });
+  if (resp.ok) {
+    console.log(`Opened HELM tab (${resp.tabId})`);
+  } else {
+    console.error('Failed to open HELM tab:', resp.error);
+    process.exit(1);
+  }
+}
+
+async function cmdRestore(args) {
+  const name = args[0];
+  if (!name) {
+    console.error('usage: helm restore <name>');
+    process.exit(1);
+  }
+  const filePath = path.join(SNAPSHOT_DIR, `${name}.json`);
+  if (!fs.existsSync(filePath)) {
+    console.error(`No snapshot found: ${name}`);
+    process.exit(1);
+  }
+  const resp = await sendRequest({ op: 'open-snapshot', snapshotPath: filePath });
+  if (resp.ok) {
+    console.log(`Opened HELM tab (${resp.tabId}) from snapshot ${name}`);
+  } else {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+}
+
+async function cmdOpen(args) {
+  const target = args[0] || '.';
+  const abs = path.resolve(target);
+  if (!fs.existsSync(abs)) {
+    console.error(`Path does not exist: ${abs}`);
+    process.exit(1);
+  }
+  const resp = await sendRequest({ op: 'open-path', cwd: abs });
+  if (resp.ok) {
+    console.log(`Opened HELM tab (${resp.tabId}) at ${abs}`);
+  } else {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+}
+
+async function cmdRun(args) {
+  const command = args.join(' ').trim();
+  if (!command) {
+    console.error('usage: helm run "<command>"');
+    process.exit(1);
+  }
+  const resp = await sendRequest({ op: 'run', cwd: process.cwd(), command });
+  if (resp.ok) {
+    console.log(`Opened HELM tab (${resp.tabId}) running: ${command}`);
+  } else {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+}
+
+async function cmdList() {
+  const resp = await sendRequest({ op: 'list-tabs' });
+  if (!resp.ok) {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+  const tabs = resp.tabs || [];
+  if (tabs.length === 0) {
+    console.log('(no tabs)');
+    return;
+  }
+  for (const t of tabs) {
+    console.log(`${t.id}  ${t.label || ''}${t.description ? '  — ' + t.description : ''}`);
+  }
+}
+
+async function cmdVersion() {
+  console.log(`helm shim ${SHIM_VERSION}`);
+  try {
+    const resp = await sendRequest({ op: 'version' });
+    if (resp.ok) {
+      console.log(`HELM app  ${resp.appVersion}`);
+      if (resp.shimVersion && resp.shimVersion !== SHIM_VERSION) {
+        console.log('');
+        console.log(`⚠️  Shim is out of date (app bundles shim ${resp.shimVersion}).`);
+        console.log('   Run "HELM → Install CLI…" from the app menu to refresh.');
+      }
+    }
+  } catch {
+    console.log('(HELM app not running — could not check app version)');
+  }
+}
+
+async function cmdDoctor() {
+  let problems = 0;
+  const ok = (msg) => console.log(`  ✓ ${msg}`);
+  const bad = (msg) => { console.log(`  ✗ ${msg}`); problems++; }
+  const warn = (msg) => console.log(`  ! ${msg}`);
+
+  console.log('helm doctor — checking install health\n');
+
+  // 1. Shim location
+  console.log('shim:');
+  const shimPath = __filename;
+  ok(`running from ${shimPath}`);
+  ok(`version ${SHIM_VERSION}`);
+
+  // 2. Is helm on PATH?
+  console.log('\nPATH:');
+  let onPathResolved = null;
+  try {
+    onPathResolved = execSync('command -v helm 2>/dev/null', { encoding: 'utf-8' }).trim();
+  } catch {}
+  if (onPathResolved) {
+    ok(`helm resolves to ${onPathResolved}`);
+    // Check if the symlink target still exists
+    try {
+      const st = fs.lstatSync(onPathResolved);
+      if (st.isSymbolicLink()) {
+        const target = fs.readlinkSync(onPathResolved);
+        if (!fs.existsSync(target)) {
+          bad(`symlink target missing: ${target}`);
+          console.log('    → re-run "HELM → Install CLI…" from the app menu');
+        } else {
+          ok(`symlink target exists: ${target}`);
+        }
+      }
+    } catch {}
+  } else {
+    bad('"helm" is not on your PATH');
+    console.log('    → run "HELM → Install CLI…" from the app menu');
+  }
+
+  // 3. Socket / app connectivity
+  console.log('\nHELM app:');
+  if (fs.existsSync(SOCKET_PATH)) {
+    ok(`socket exists at ${SOCKET_PATH}`);
+    try {
+      const resp = await sendRequest({ op: 'version' });
+      if (resp.ok) {
+        ok(`app reachable (HELM ${resp.appVersion})`);
+        if (resp.shimVersion && resp.shimVersion !== SHIM_VERSION) {
+          warn(`app bundles shim ${resp.shimVersion}, you are running ${SHIM_VERSION}`);
+          console.log('    → run "HELM → Install CLI…" to refresh the symlink');
+        } else {
+          ok('shim matches app');
+        }
+      } else {
+        bad(`app responded with error: ${resp.error}`);
+      }
+    } catch (err) {
+      bad(`could not talk to app: ${err.message || err}`);
+    }
+  } else {
+    warn('socket does not exist (HELM is not running)');
+    console.log(`    → launch HELM, then run "helm doctor" again`);
+  }
+
+  // 4. Snapshot dir
+  console.log('\nsnapshots:');
+  if (fs.existsSync(SNAPSHOT_DIR)) {
+    const files = fs.readdirSync(SNAPSHOT_DIR).filter(f => f.endsWith('.json'));
+    ok(`snapshot dir exists (${files.length} saved)`);
+  } else {
+    warn('snapshot dir does not exist yet (created on first snapshot)');
+  }
+
+  console.log(problems === 0 ? '\n✓ all good' : `\n✗ ${problems} problem${problems === 1 ? '' : 's'} found`);
+  if (problems > 0) process.exit(1);
+}
+
+function cmdSnapshots() {
+  ensureDir(SNAPSHOT_DIR);
+  const files = fs.readdirSync(SNAPSHOT_DIR).filter(f => f.endsWith('.json'));
+  if (files.length === 0) {
+    console.log('(no snapshots)');
+    return;
+  }
+  const rows = files.map(f => {
+    const p = path.join(SNAPSHOT_DIR, f);
+    try {
+      const snap = JSON.parse(fs.readFileSync(p, 'utf-8'));
+      return { name: f.replace(/\.json$/, ''), createdAt: snap.createdAt || '', cwd: snap.cwd || '' };
+    } catch {
+      return { name: f.replace(/\.json$/, ''), createdAt: '', cwd: '' };
+    }
+  });
+  rows.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  for (const r of rows) {
+    const date = r.createdAt ? r.createdAt.slice(0, 19).replace('T', ' ') : '                   ';
+    console.log(`${r.name.padEnd(32)}  ${date}  ${r.cwd}`);
+  }
+}
+
+function printHelp() {
+  console.log(`helm — CLI shim for the HELM terminal app
+
+USAGE
+  helm <command> [options]
+
+COMMANDS
+
+  snapshot [--name <name>]
+      Capture the current terminal context (cwd, filtered env, shell
+      history, git branch, active venv/nvm/pyenv) and open a new HELM
+      tab pre-loaded with it. With --name, saves under that name so
+      you can restore it later. Without --name, a timestamped id is
+      generated.
+
+      Examples:
+        helm snapshot
+        helm snapshot --name morning-work
+        helm snapshot --name debug-session
+
+  restore <name>
+      Open a new HELM tab from a previously named snapshot. The new
+      tab starts in the snapshot's cwd with its env and history.
+
+      Examples:
+        helm restore morning-work
+
+  open [path]
+      Open a new HELM tab at the given directory. Defaults to the
+      current directory.
+
+      Examples:
+        helm open
+        helm open .
+        helm open ~/Documents/my-project
+        helm open /tmp
+
+  run "<command>"
+      Open a new HELM tab at the current directory and run a command
+      in it. The command fires once the shell prompt appears.
+
+      Examples:
+        helm run "npm test"
+        helm run "git status && git log --oneline -5"
+        helm run "python manage.py runserver"
+
+  list
+      Show all active HELM tabs (id, label, description). Queries the
+      running app directly for live state.
+
+  snapshots
+      List saved snapshots with name, creation date, and cwd.
+      Snapshots are sorted newest-first.
+
+  version, --version, -v
+      Show the shim version and the running app's version. Warns if
+      they diverge (meaning your symlink needs refreshing).
+
+  doctor
+      Diagnose CLI install health: checks PATH, symlink validity,
+      socket connectivity, version match, and snapshot directory.
+
+  help, --help, -h
+      Show this help text.
+
+OPTIONS
+  --name <name>             (snapshot) save snapshot under this name
+
+BEHAVIOR
+  If HELM is not running when you invoke any command, it will be
+  launched automatically via "open -a HELM" and the command retried
+  once the app is ready.
+
+  Snapshots filter environment variables using an allowlist — only
+  known-safe variables (PATH, LANG, SHELL, version-manager paths,
+  etc.) are captured. Secrets (TOKEN, KEY, SECRET, PASSWORD, etc.)
+  are excluded.
+
+PATHS
+  Snapshots:    ${SNAPSHOT_DIR}
+  IPC socket:   ${SOCKET_PATH}
+
+INSTALL & UPDATES
+  To install this shim on your PATH, open HELM and choose
+  "HELM → Install CLI…" from the menu bar. It will create a
+  symlink in ~/.local/bin, ~/bin, or /usr/local/bin.
+
+  Updates are automatic: the symlink points into the HELM app
+  bundle, so app updates replace the shim in place. No action
+  needed unless you move or reinstall HELM.app.
+
+  Run "helm doctor" any time to verify your install is healthy,
+  and "helm version" to check the shim matches the app.
+
+  Manual install:
+    ln -sf "<path-to-helm-shim>" ~/.local/bin/helm
+
+SEE ALSO
+  helm snapshots            # list saved snapshots
+  helm list                 # list active tabs
+`);
+}
+
+// ── entry ─────────────────────────────────────────────────────────
+
+async function main() {
+  const [, , cmd, ...rest] = process.argv;
+
+  if (!cmd || cmd === '--help' || cmd === '-h' || cmd === 'help') {
+    printHelp();
+    return;
+  }
+
+  if (cmd === '--version' || cmd === '-v') {
+    return await cmdVersion();
+  }
+
+  try {
+    switch (cmd) {
+      case 'snapshot': return await cmdSnapshot(rest);
+      case 'restore':  return await cmdRestore(rest);
+      case 'open':     return await cmdOpen(rest);
+      case 'run':      return await cmdRun(rest);
+      case 'list':     return await cmdList();
+      case 'snapshots': return cmdSnapshots();
+      case 'version': return await cmdVersion();
+      case 'doctor':  return await cmdDoctor();
+      default:
+        console.error(`Unknown command: ${cmd}`);
+        printHelp();
+        process.exit(1);
+    }
+  } catch (err) {
+    console.error('Error:', err.message || err);
+    process.exit(1);
+  }
+}
+
+main();

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -38,6 +38,8 @@ import { AnthropicService } from './anthropic-service';
 import { HelmAPI } from './helm-api';
 import { LicenseManager } from './licensing';
 import { MobileAccessServer } from './mobile-server';
+import { HelmIPCServer, PendingTabContext, TabInfo } from './helm-ipc-server';
+import { installCLI } from './cli-install';
 
 // Register custom protocol for deep linking (helm://)
 if (process.defaultApp) {
@@ -54,6 +56,10 @@ let db: DatabaseManager | null = null;
 let aiService: AIService | null = null;
 let licenseManager: LicenseManager | null = null;
 let mobileServer: MobileAccessServer | null = null;
+let helmIPCServer: HelmIPCServer | null = null;
+let lastReportedTabs: TabInfo[] = [];
+// Pending tab-list requests keyed by requestId, awaiting renderer response
+const pendingTabRequests: Map<string, (tabs: TabInfo[]) => void> = new Map();
 
 // Forge API configuration — all AI requests route through Forge
 const FORGE_API_KEY = 'rrt-burst-3f24900af81b04ba915d3fda37df147bf297d5e12444dee1a87f54fabec13e6a';
@@ -164,6 +170,33 @@ function createWindow() {
       mobileServer.broadcastCLIEvent(tabId, { type: event.type, content: event.content });
     }
   });
+
+  // Start the HELM CLI IPC server (listens on a Unix socket for the `helm` shim)
+  helmIPCServer = new HelmIPCServer({
+    reserveTab: (ctx: PendingTabContext, _label?: string) => {
+      const tabId = `cli-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      ptyManager?.setPendingContext(tabId, ctx);
+      return tabId;
+    },
+    getTabs: () => requestTabsFromRenderer(),
+    focusWindow: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    },
+    notifyRendererNewTab: (tabId: string, label: string) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('helm:new-tab', { tabId, label });
+      }
+    },
+    getVersionInfo: () => readVersionInfo(),
+  });
+  helmIPCServer.start();
+
+  // Build an application menu with an "Install CLI…" item
+  buildApplicationMenu();
 
   // Set up IPC handlers
   setupIPCHandlers();
@@ -738,8 +771,33 @@ function setupIPCHandlers() {
     return mobileServer?.getPairedDevices() || [];
   });
 
+  // CLI installer — called from the HELM app menu
+  ipcMain.handle('helm:installCLI', async () => {
+    return await installCLI();
+  });
+
+  // Renderer replies to a tabs-request initiated by the `helm` CLI
+  ipcMain.on('helm:tabsResponse', (_, requestId: string, tabs: any[]) => {
+    const resolver = pendingTabRequests.get(requestId);
+    if (!resolver) return;
+    pendingTabRequests.delete(requestId);
+    const parsed: TabInfo[] = (tabs || []).map((t: any) => ({
+      id: t.id,
+      label: t.label,
+      description: t.description,
+    }));
+    // Keep the cache warm for fallback use
+    lastReportedTabs = parsed;
+    resolver(parsed);
+  });
+
   // Renderer notifies us of tab list changes
   ipcMain.on('mobile:tabsChanged', (_, tabs: any[]) => {
+    lastReportedTabs = (tabs || []).map((t: any) => ({
+      id: t.id,
+      label: t.label,
+      description: t.description,
+    }));
     if (mobileServer) {
       // Update the getTabs callback to return current tabs
       const currentTabs = tabs;
@@ -915,6 +973,87 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   mobileServer?.stop();
+  helmIPCServer?.stop();
   ptyManager?.killAll();
   db?.close();
 });
+
+function readVersionInfo(): { appVersion: string; shimVersion: string } {
+  let appVersion = app.getVersion();
+  // Read the shim version from the bundled helm shim file
+  let shimVersion = 'unknown';
+  try {
+    const shimPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'cli', 'helm')
+      : path.join(__dirname, '..', '..', 'src', 'main', 'cli', 'helm');
+    const shimSrc = fs.readFileSync(shimPath, 'utf-8');
+    const m = shimSrc.match(/const\s+SHIM_VERSION\s*=\s*['"]([^'"]+)['"]/);
+    if (m) shimVersion = m[1];
+  } catch {}
+  return { appVersion, shimVersion };
+}
+
+function requestTabsFromRenderer(timeoutMs = 500): Promise<TabInfo[]> {
+  return new Promise((resolve) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      resolve(lastReportedTabs);
+      return;
+    }
+    const requestId = `tabs-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const timer = setTimeout(() => {
+      if (pendingTabRequests.has(requestId)) {
+        pendingTabRequests.delete(requestId);
+        resolve(lastReportedTabs); // fall back to cache
+      }
+    }, timeoutMs);
+    pendingTabRequests.set(requestId, (tabs) => {
+      clearTimeout(timer);
+      resolve(tabs);
+    });
+    mainWindow.webContents.send('helm:requestTabs', requestId);
+  });
+}
+
+function buildApplicationMenu() {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'HELM',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Install CLI…',
+          click: async () => {
+            const result = await installCLI();
+            if (result.ok) {
+              await dialog.showMessageBox({
+                type: 'info',
+                message: 'helm CLI installed',
+                detail: `Installed at ${result.path}\n\nYou can now run "helm" from any terminal.${result.note ? '\n\n' + result.note : ''}`,
+              });
+            } else {
+              await dialog.showMessageBox({
+                type: 'error',
+                message: 'Could not install helm CLI',
+                detail: result.error || 'Unknown error',
+              });
+            }
+          },
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}

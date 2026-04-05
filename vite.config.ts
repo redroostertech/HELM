@@ -5,6 +5,10 @@ import path from 'path'
 export default defineConfig({
   plugins: [react()],
   base: './',
+  server: {
+    port: 5173,
+    strictPort: true, // fail fast if 5173 is taken rather than silently picking another port
+  },
   build: {
     outDir: 'dist/renderer',
     emptyOutDir: true,

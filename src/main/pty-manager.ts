@@ -14,6 +14,19 @@ interface ActiveCLI {
   lastInputTime: number;
 }
 
+export interface PendingTabContext {
+  /** Absolute directory to start the shell in */
+  cwd?: string;
+  /** Env var overrides to merge into the PTY env */
+  env?: Record<string, string>;
+  /** Commands to seed into shell history (user can press ↑ to recall) */
+  history?: string[];
+  /** Command to run immediately after the shell starts */
+  initialCommand?: string;
+  /** Origin: 'snapshot' | 'open' | 'run' */
+  source?: string;
+}
+
 interface PTYInstance {
   process: pty.IPty;
   sessionId: number | null;
@@ -36,6 +49,13 @@ export class PTYManager {
   private hasReattached = false;
   private cliStatusCallbacks: Array<(tabId: string, active: boolean, programName?: string) => void> = [];
   private commandCapturedCallbacks: Array<(tabId: string, command: string) => void> = [];
+  /** Context to apply when a specific tabId's PTY is next started (set via `helm` CLI) */
+  private pendingContexts: Map<string, PendingTabContext> = new Map();
+
+  /** Register a context to be applied the next time start() runs for the given tabId */
+  setPendingContext(tabId: string, ctx: PendingTabContext): void {
+    this.pendingContexts.set(tabId, ctx);
+  }
 
   /** Register callback for CLI program start/stop events */
   onCLIStatus(callback: (tabId: string, active: boolean, programName?: string) => void): void {
@@ -47,12 +67,23 @@ export class PTYManager {
     this.commandCapturedCallbacks.push(callback);
   }
 
+  private tabHistoryDir: string;
+
   constructor(private db: DatabaseManager, customRegistry?: CLIProgram[]) {
     this.cliWatcher = new CLIConversationWatcher(db);
     this.cliRegistry = customRegistry || DEFAULT_CLI_REGISTRY;
 
     const homeDir = process.env.HOME || os.homedir();
     this.zshEnvDir = path.join(homeDir, '.helm');
+
+    // Per-tab histfiles live here so snapshot-captured history can appear
+    // in a new tab's ↑-arrow recall without polluting ~/.zsh_history.
+    this.tabHistoryDir = path.join(homeDir, 'Library', 'Application Support', 'Helm', 'tab-histories');
+    try {
+      if (!fs.existsSync(this.tabHistoryDir)) {
+        fs.mkdirSync(this.tabHistoryDir, { recursive: true, mode: 0o700 });
+      }
+    } catch {}
 
     // Create zsh env files once
     if (!fs.existsSync(this.zshEnvDir)) fs.mkdirSync(this.zshEnvDir, { recursive: true });
@@ -63,6 +94,8 @@ export class PTYManager {
     ].join('\n'));
     fs.writeFileSync(path.join(this.zshEnvDir, '.zshrc'), [
       `[ -f "${homeDir}/.zshrc" ] && source "${homeDir}/.zshrc"`,
+      '# HELM: restore per-tab HISTFILE if user .zshrc reset it',
+      '[ -n "$HELM_TAB_HISTFILE" ] && export HISTFILE="$HELM_TAB_HISTFILE"',
       '',
     ].join('\n'));
     fs.writeFileSync(path.join(this.zshEnvDir, '.zprofile'), [
@@ -82,13 +115,32 @@ export class PTYManager {
     const shell = process.env.SHELL || '/bin/zsh';
     const homeDir = process.env.HOME || os.homedir();
 
-    console.log(`🔧 Starting PTY for tab ${tabId}:`, { shell, cols, rows });
+    // Apply pending context from `helm` CLI, if any
+    const pending = this.pendingContexts.get(tabId);
+    if (pending) this.pendingContexts.delete(tabId);
+
+    const spawnCwd = pending?.cwd && fs.existsSync(pending.cwd) ? pending.cwd : homeDir;
+
+    // Build a per-tab histfile: [user's main history] + [captured snapshot entries].
+    // This is set as HISTFILE on the PTY so the new tab's ↑-arrow recalls the
+    // captured commands first (most recent), then cycles into the user's history.
+    // The user's ~/.zsh_history is never modified.
+    let perTabHistFile: string | null = null;
+    if (pending?.history && pending.history.length > 0) {
+      try {
+        perTabHistFile = this.buildTabHistoryFile(tabId, shell, pending.history);
+      } catch (err) {
+        console.warn('Failed to build per-tab history file:', err);
+      }
+    }
+
+    console.log(`🔧 Starting PTY for tab ${tabId}:`, { shell, cols, rows, cwd: spawnCwd });
 
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: homeDir,
+      cwd: spawnCwd,
       env: {
         ...process.env,
         TERM: 'xterm-256color',
@@ -98,15 +150,32 @@ export class PTYManager {
         SHELL_SESSIONS_DISABLE: '1',
         PROMPT_EOL_MARK: '',
         ZDOTDIR: this.zshEnvDir,
+        ...(pending?.env || {}),
+        ...(perTabHistFile ? { HISTFILE: perTabHistFile, HELM_TAB_HISTFILE: perTabHistFile } : {}),
       } as any,
     });
+
+    // If the context asked to run a command, send it once the shell has
+    // emitted its first prompt (see onData handler below for the trigger).
+    const pendingInitialCommand = pending?.initialCommand || null;
+    let initialCommandSent = false;
+    // Safety net: if we never see a prompt (e.g. unusual shell config),
+    // fire the command after 3s anyway so the user isn't left hanging.
+    if (pendingInitialCommand) {
+      setTimeout(() => {
+        if (!initialCommandSent) {
+          initialCommandSent = true;
+          try { ptyProcess.write(pendingInitialCommand + '\r'); } catch {}
+        }
+      }, 3000);
+    }
 
     console.log(`✅ PTY started for tab ${tabId}, PID:`, ptyProcess.pid);
 
     // First tab on startup: try to reattach to a recent session.
     // Additional tabs always get a new session.
     let sessionId: number;
-    let workingDir = homeDir;
+    let workingDir = spawnCwd;
     if (!this.hasReattached) {
       this.hasReattached = true;
       const reattachable = await this.db.getReattachableSession();
@@ -116,11 +185,11 @@ export class PTYManager {
         await this.db.reopenSession(sessionId);
         console.log(`🔄 Reattached to session ${sessionId} (${workingDir})`);
       } else {
-        sessionId = await this.db.createSession(ptyProcess.process, homeDir);
+        sessionId = await this.db.createSession(ptyProcess.process, spawnCwd);
         console.log(`🆕 Created new session ${sessionId}`);
       }
     } else {
-      sessionId = await this.db.createSession(ptyProcess.process, homeDir);
+      sessionId = await this.db.createSession(ptyProcess.process, spawnCwd);
       console.log(`🆕 Created new session ${sessionId} (new tab)`);
     }
 
@@ -153,6 +222,12 @@ export class PTYManager {
           // Store the last line as the shell prompt sample
           instance.shellPromptSample = lines[lines.length - 1].trim();
           hasSeenFirstPrompt = true;
+
+          // Now that the shell is ready, run any queued initial command
+          if (pendingInitialCommand && !initialCommandSent) {
+            initialCommandSent = true;
+            try { ptyProcess.write(pendingInitialCommand + '\r'); } catch {}
+          }
         }
       }
 
@@ -183,6 +258,7 @@ export class PTYManager {
       if (instance.sessionId) {
         this.db.endSession(instance.sessionId);
       }
+      this.cleanupTabHistoryFile(tabId);
       this.instances.delete(tabId);
     });
 
@@ -217,6 +293,7 @@ export class PTYManager {
         this.db.endCLISession(instance.activeCLI.cliSessionId).catch(() => {});
       }
       instance.process.kill();
+      this.cleanupTabHistoryFile(tabId);
       this.instances.delete(tabId);
     }
   }
@@ -228,6 +305,7 @@ export class PTYManager {
         this.db.endCLISession(instance.activeCLI.cliSessionId).catch(() => {});
       }
       instance.process.kill();
+      this.cleanupTabHistoryFile(tabId);
     }
     this.instances.clear();
   }
@@ -480,5 +558,67 @@ export class PTYManager {
 
   private stripAnsi(str: string): string {
     return str.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+  }
+
+  /**
+   * Build a per-tab histfile combining the user's main history with
+   * snapshot-captured entries, so the tab's ↑-arrow recall shows captured
+   * entries first (most recent) then cycles into the user's normal history.
+   * Returns the path to the per-tab histfile, or null for unsupported shells.
+   *
+   * The user's main histfile is never modified.
+   */
+  private buildTabHistoryFile(tabId: string, shell: string, entries: string[]): string | null {
+    const home = process.env.HOME || os.homedir();
+    const isZsh = /zsh$/.test(shell);
+    const isBash = /bash$/.test(shell);
+    if (!isZsh && !isBash) return null;
+
+    const mainHistfile = isZsh
+      ? (process.env.HISTFILE || path.join(home, '.zsh_history'))
+      : (process.env.HISTFILE || path.join(home, '.bash_history'));
+
+    const perTabPath = path.join(
+      this.tabHistoryDir,
+      `${tabId}.${isZsh ? 'zsh' : 'bash'}_history`
+    );
+
+    // Read the user's main history (tolerate missing or unreadable file)
+    let mainContent = '';
+    try {
+      if (fs.existsSync(mainHistfile)) {
+        mainContent = fs.readFileSync(mainHistfile, 'utf-8');
+        if (!mainContent.endsWith('\n')) mainContent += '\n';
+      }
+    } catch { /* ignore — we'll just have captured entries */ }
+
+    // Format the captured entries (appended = most recent in zsh/bash)
+    const now = Math.floor(Date.now() / 1000);
+    const capturedLines = entries.map((cmd, i) => {
+      const clean = cmd.replace(/\r/g, '').replace(/\n/g, ' ').trim();
+      if (!clean) return '';
+      if (isZsh) {
+        // zsh extended history format: ": <epoch>:<duration>;<cmd>"
+        // Use timestamps newer than anything in the main history so they rank as "most recent"
+        return `: ${now - (entries.length - i) + entries.length}:0;${clean}`;
+      }
+      return clean;
+    }).filter(Boolean);
+
+    if (capturedLines.length === 0) return null;
+
+    const combined = mainContent + capturedLines.join('\n') + '\n';
+    fs.writeFileSync(perTabPath, combined, { mode: 0o600 });
+    return perTabPath;
+  }
+
+  /** Remove the per-tab histfile for a tab (call on tab close) */
+  private cleanupTabHistoryFile(tabId: string): void {
+    try {
+      for (const ext of ['zsh_history', 'bash_history']) {
+        const p = path.join(this.tabHistoryDir, `${tabId}.${ext}`);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
+    } catch {}
   }
 }
