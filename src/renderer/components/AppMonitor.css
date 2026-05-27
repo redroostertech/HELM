@@ -58,11 +58,49 @@
 }
 
 .am-session-item {
+  position: relative;
   padding: 10px 12px;
   border-radius: 6px;
   cursor: pointer;
   margin-bottom: 4px;
   border: 1px solid transparent;
+}
+
+.am-session-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.am-session-delete::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>");
+  background-size: contain;
+  background-repeat: no-repeat;
+  transition: filter 0.12s;
+}
+
+.am-session-item:hover .am-session-delete { opacity: 1; }
+
+.am-session-delete:hover {
+  background: rgba(232, 90, 79, 0.15);
+}
+.am-session-delete:hover::before {
+  filter: brightness(0) saturate(100%) invert(50%) sepia(78%) saturate(2876%) hue-rotate(335deg) brightness(94%) contrast(89%);
 }
 
 .am-session-item:hover {

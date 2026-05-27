@@ -203,6 +203,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     launchChild: (args: { sessionId: string; cwd: string; command: string }) =>
       ipcRenderer.invoke('appMonitor:launchChild', args),
     killChild: (sessionId: string) => ipcRenderer.invoke('appMonitor:killChild', sessionId),
+    deleteSession: (sessionId: string) => ipcRenderer.invoke('appMonitor:deleteSession', sessionId),
     onServerEvent: (callback: (sessionId: string, event: any) => void) => {
       const handler = (_: any, sessionId: string, event: any) => callback(sessionId, event);
       ipcRenderer.on('appMonitor:server-event', handler);
@@ -436,6 +437,7 @@ export interface ElectronAPI {
     launchChild: (args: { sessionId: string; cwd: string; command: string }) =>
       Promise<{ ok: boolean; pid?: number; error?: string }>;
     killChild: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+    deleteSession: (sessionId: string) => Promise<{ ok: boolean }>;
     onServerEvent: (callback: (sessionId: string, event: any) => void) => () => void;
     onUrlDetected: (callback: (sessionId: string, url: string) => void) => () => void;
   };

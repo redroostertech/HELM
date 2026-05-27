@@ -356,6 +356,13 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
     window.electronAPI.appMonitor?.killChild?.(id).catch(() => {});
   };
 
+  const handleDeleteSession = (id: string) => {
+    setSessions(prev => prev.filter(s => s.id !== id));
+    if (activeSessionId === id) setActiveSessionId(null);
+    // Kills any running child + drops the session from the main-process list.
+    window.electronAPI.appMonitor?.deleteSession?.(id).catch(() => {});
+  };
+
   const openForward = (evt: AppMonitorEvent) => {
     setForwardingEvent(evt);
     setForwardSummary(evt.message);
@@ -401,6 +408,12 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
               className={`am-session-item ${s.id === activeSessionId ? 'active' : ''}`}
               onClick={() => handleSelectSession(s.id)}
             >
+              <button
+                className="am-session-delete"
+                onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.id); }}
+                title="Delete session"
+                aria-label="Delete session"
+              />
               <div className="am-session-url" title={s.url}>{s.url}</div>
               <div className="am-session-meta">
                 <span>{new Date(s.startedAt).toLocaleTimeString()}</span>

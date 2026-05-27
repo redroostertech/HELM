@@ -85,6 +85,14 @@ export class AppMonitorService {
     this.killChild(sessionId);
   }
 
+  /** Permanently remove a session from the in-memory list. Kills the
+   *  associated child process if still running. */
+  deleteSession(sessionId: string): void {
+    this.killChild(sessionId);
+    this.sessions.delete(sessionId);
+    this.urlDetected.delete(sessionId);
+  }
+
   /**
    * Open a directory picker and return the chosen path (or null on cancel).
    */
@@ -108,6 +116,50 @@ export class AppMonitorService {
   async inspectDirectory(dir: string): Promise<DirectoryInspection> {
     if (!dir || !fs.existsSync(dir)) return { ok: false, error: `directory not found: ${dir}` };
     if (!fs.statSync(dir).isDirectory()) return { ok: false, error: `not a directory: ${dir}` };
+
+    // install.sh + run.sh are the canonical Cruise-generated launchers. When
+    // either is present we promote them above npm scripts — the builder agents
+    // know best how to start what they built.
+    const installShPath = path.join(dir, 'install.sh');
+    const runShPath = path.join(dir, 'run.sh');
+    const hasInstall = fs.existsSync(installShPath);
+    const hasRun = fs.existsSync(runShPath);
+    if (hasInstall || hasRun) {
+      const installExec = hasInstall && (fs.statSync(installShPath).mode & 0o111) !== 0;
+      const runExec = hasRun && (fs.statSync(runShPath).mode & 0o111) !== 0;
+      const installCmd = installExec ? './install.sh' : 'bash ./install.sh';
+      const runCmd = runExec ? './run.sh' : 'bash ./run.sh';
+
+      const scripts: Array<{ name: string; command: string }> = [];
+      if (hasInstall && hasRun) {
+        scripts.push({ name: 'install + run (first launch)', command: `${installCmd} && ${runCmd}` });
+        scripts.push({ name: 'run only (re-launch)',         command: runCmd });
+        scripts.push({ name: 'install only',                 command: installCmd });
+      } else if (hasRun) {
+        scripts.push({ name: 'run.sh',                       command: runCmd });
+      } else {
+        scripts.push({ name: 'install.sh',                   command: installCmd });
+      }
+
+      // Surface npm scripts as secondary suggestions if package.json exists.
+      const pkgPath = path.join(dir, 'package.json');
+      if (fs.existsSync(pkgPath)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+          const scriptMap: Record<string, string> = pkg.scripts || {};
+          for (const name of Object.keys(scriptMap)) {
+            scripts.push({ name: `npm: ${name}`, command: `npm run ${name}` });
+          }
+        } catch { /* ignore — Cruise scripts are the primary path anyway */ }
+      }
+
+      const suggestions: string[] = [];
+      if (hasInstall && !installExec) suggestions.push('chmod +x install.sh');
+      if (hasRun && !runExec) suggestions.push('chmod +x run.sh');
+      if (!hasInstall) suggestions.push('No install.sh — Cruise expects one. (run.sh alone is OK if deps are pre-installed.)');
+      if (!hasRun) suggestions.push('No run.sh — Cruise builders should generate one before BUILD_COMPLETE.');
+      return { ok: true, kind: 'node', scripts, suggestions };
+    }
 
     const pkgPath = path.join(dir, 'package.json');
     if (fs.existsSync(pkgPath)) {
@@ -350,4 +402,9 @@ export function registerAppMonitorIPC(service: AppMonitorService): void {
   ipcMain.handle('appMonitor:launchChild', (_e, args: LaunchChildArgs) => service.launchChild(args));
 
   ipcMain.handle('appMonitor:killChild', (_e, sessionId: string) => service.killChild(sessionId));
+
+  ipcMain.handle('appMonitor:deleteSession', (_e, sessionId: string) => {
+    service.deleteSession(sessionId);
+    return { ok: true };
+  });
 }
