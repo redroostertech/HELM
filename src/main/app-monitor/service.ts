@@ -27,8 +27,23 @@ function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
 }
 
-/** Match local dev-server URLs in stdout: localhost / 127.0.0.1 / 0.0.0.0 / host.docker.internal. */
-const URL_RE = /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal)(?::\d+)?(?:\/[^\s'"<>)\]]*)?)/i;
+/**
+ * Match local dev-server URLs in stdout. Covers:
+ *   - Hostnames: localhost, host.docker.internal
+ *   - IPv4: 127.0.0.1, 0.0.0.0 (bind wildcard)
+ *   - IPv6 in bracket form: [::1], [::], [fe80::...]
+ * The browser can't connect to bind-wildcards (0.0.0.0 / [::]), so we
+ * rewrite those to localhost when handing off to the webview — see
+ * normalizeLocalUrl below.
+ */
+const URL_RE = /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|\[[0-9a-fA-F:]+\])(?::\d+)?(?:\/[^\s'"<>)\]]*)?)/i;
+
+function normalizeLocalUrl(url: string): string {
+  return url
+    .replace(/^(https?:\/\/)0\.0\.0\.0/i, '$1localhost')
+    .replace(/^(https?:\/\/)\[::\]/i, '$1localhost')
+    .replace(/^(https?:\/\/)\[::1\]/i, '$1localhost');
+}
 
 /**
  * AppMonitor service. v0 stores sessions in-memory only — persistence
@@ -147,7 +162,14 @@ export class AppMonitorService {
       cwd,
       shell: true,
       detached: true,
-      env: { ...process.env, FORCE_COLOR: '1' },
+      env: {
+        ...process.env,
+        FORCE_COLOR: '1',
+        // Python block-buffers stdout when stdio is a pipe (not a TTY),
+        // so its startup banner never reaches us until the process exits.
+        // PYTHONUNBUFFERED forces line-buffering and is a no-op for non-Python procs.
+        PYTHONUNBUFFERED: '1',
+      },
     });
 
     if (!child.pid) {
@@ -176,7 +198,7 @@ export class AppMonitorService {
       if (!this.urlDetected.has(sessionId)) {
         const m = clean.match(URL_RE);
         if (m) {
-          const url = m[1];
+          const url = normalizeLocalUrl(m[1]);
           this.urlDetected.add(sessionId);
           if (win && !win.isDestroyed()) {
             win.webContents.send('appMonitor:url-detected', sessionId, url);
