@@ -913,6 +913,12 @@ function setupIPCHandlers() {
     return { ok: true };
   });
 
+  ipcMain.handle('cruise:continueWithGoals', async (_, runId: number, goals: string[]) => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.continueWithGoals(runId, goals);
+    return { ok: true };
+  });
+
   ipcMain.handle('cruise:pickRepo', async () => {
     if (!mainWindow) return { path: null };
     const result = await dialog.showOpenDialog(mainWindow, {

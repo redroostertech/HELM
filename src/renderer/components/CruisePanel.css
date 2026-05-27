@@ -827,6 +827,62 @@
   border-color: #ccc;
 }
 
+/* ── Mode toggle (segmented control) ──────────────── */
+
+.cruise-mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.cruise-panel button.cruise-mode-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: #2d2d30;
+  color: #d4d4d4;
+  border: 1px solid #444;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s;
+}
+
+.cruise-panel button.cruise-mode-option:hover { background: #3c3c3c; }
+
+.cruise-panel button.cruise-mode-option.active {
+  background: #094771;
+  border-color: #0e639c;
+}
+
+[data-theme="light"] .cruise-panel button.cruise-mode-option {
+  background: #fff;
+  color: #333;
+  border-color: #ccc;
+}
+
+[data-theme="light"] .cruise-panel button.cruise-mode-option:hover {
+  background: #f0f7ff;
+}
+
+[data-theme="light"] .cruise-panel button.cruise-mode-option.active {
+  background: #e0eefe;
+  border-color: #0e639c;
+}
+
+.cruise-mode-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cruise-mode-sub {
+  font-size: 11px;
+  color: #888;
+}
+
 .cruise-row { display: flex; gap: 8px; }
 .cruise-row input { flex: 1; }
 .cruise-panel .cruise-row button {

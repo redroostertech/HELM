@@ -269,12 +269,13 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
     }
   }, [runDetails?.run.current_phase, activeRunId]);
 
-  const handleStart = async (repo: string, opts: { autoApprovePRD: boolean; maxReviewCycles: number }) => {
+  const handleStart = async (repo: string, opts: { autoApprovePRD: boolean; maxReviewCycles: number; projectMode: 'new' | 'existing' }) => {
     setBusy(true);
     setError(null);
     try {
       const { runId } = await window.electronAPI.cruise.start({
         targetRepo: repo,
+        projectMode: opts.projectMode,
         autoApprovePRD: opts.autoApprovePRD,
         maxReviewCycles: opts.maxReviewCycles,
       });
@@ -283,6 +284,24 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
       await loadRuns();
     } catch (err: any) {
       setError(err?.message || 'Failed to start run');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const [continueRunId, setContinueRunId] = useState<number | null>(null);
+
+  const handleContinueWithGoals = async (goals: string[]) => {
+    const runId = continueRunId;
+    setContinueRunId(null);
+    if (!runId) return;
+    setBusy(true);
+    try {
+      await window.electronAPI.cruise.continueWithGoals(runId, goals);
+      await loadRuns();
+      await refreshActiveRun();
+    } catch (err: any) {
+      setError(err?.message || 'continue failed');
     } finally {
       setBusy(false);
     }
@@ -414,6 +433,7 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
               onPause={handlePause}
               onResume={handleResume}
               onStop={handleStop}
+              onContinue={() => setContinueRunId(runDetails.run.id)}
               busy={busy}
             />
             <PhaseTimeline phase={runDetails.run.current_phase} status={runDetails.run.status} reviewCycle={runDetails.run.review_cycle} />
@@ -516,6 +536,14 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
           onConfirm={performDelete}
           onCancel={() => setConfirmDelete(null)}
         />
+
+        {continueRunId !== null && (
+          <ContinueGoalsModal
+            busy={busy}
+            onCancel={() => setContinueRunId(null)}
+            onContinue={handleContinueWithGoals}
+          />
+        )}
       </div>
     </div>
   );
@@ -523,16 +551,17 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
 
 // ── Subcomponents ──────────────────────────────────────────────────
 
-function CruiseRunHeader({ run, onPause, onResume, onStop, busy }: {
+function CruiseRunHeader({ run, onPause, onResume, onStop, onContinue, busy }: {
   run: CruiseRun;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
+  onContinue: () => void;
   busy: boolean;
 }) {
   // Resume-from-checkpoint is only meaningful for runs that were halted
   // mid-flight (stopped) or errored (failed). A `done` run completed
-  // cleanly — there's nothing to resume back into.
+  // cleanly — for those we offer "Add new goals & continue" instead.
   const canResumeFromCheckpoint = run.status === 'stopped' || run.status === 'failed';
 
   return (
@@ -558,7 +587,17 @@ function CruiseRunHeader({ run, onPause, onResume, onStop, busy }: {
           <button onClick={onResume} disabled={busy}>Resume from checkpoint</button>
         )}
         {run.status === 'done' && (
-          <span className="cruise-run-done-badge" title="This run finished cleanly. Start a new run to do more work on this repo.">✓ completed</span>
+          <>
+            <span className="cruise-run-done-badge" title="This run finished cleanly.">✓ completed</span>
+            <button
+              className="cruise-primary"
+              onClick={onContinue}
+              disabled={busy}
+              title="Re-engage the build team with additional goals"
+            >
+              Add new goals &amp; continue
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -741,12 +780,13 @@ function computeMessageStats(role: string, events: CruiseEvent[]): MessageStats 
 
 function StartDialog({ onCancel, onStart, busy }: {
   onCancel: () => void;
-  onStart: (repo: string, opts: { autoApprovePRD: boolean; maxReviewCycles: number }) => void;
+  onStart: (repo: string, opts: { autoApprovePRD: boolean; maxReviewCycles: number; projectMode: 'new' | 'existing' }) => void;
   busy: boolean;
 }) {
   const [repo, setRepo] = useState('');
   const [autoApprove, setAutoApprove] = useState(false);
   const [maxCycles, setMaxCycles] = useState(3);
+  const [projectMode, setProjectMode] = useState<'new' | 'existing'>('new');
 
   const pickRepo = async () => {
     const result = await window.electronAPI.cruise.pickRepo();
@@ -757,7 +797,38 @@ function StartDialog({ onCancel, onStart, busy }: {
     <div className="cruise-start-overlay">
       <div className="cruise-start-dialog">
         <h2>New Cruise Control Run</h2>
-        <p>Pick a repository that contains <code>AGENTS.md</code> and <code>PRD.md</code> in its root.</p>
+
+        <label>Project mode</label>
+        <div className="cruise-mode-toggle" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={projectMode === 'new'}
+            className={`cruise-mode-option ${projectMode === 'new' ? 'active' : ''}`}
+            onClick={() => setProjectMode('new')}
+          >
+            <span className="cruise-mode-title">New Project</span>
+            <span className="cruise-mode-sub">Greenfield scaffold from PRD</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={projectMode === 'existing'}
+            className={`cruise-mode-option ${projectMode === 'existing' ? 'active' : ''}`}
+            onClick={() => setProjectMode('existing')}
+          >
+            <span className="cruise-mode-title">Existing Project</span>
+            <span className="cruise-mode-sub">Modify / extend an existing repo</span>
+          </button>
+        </div>
+
+        <p>
+          {projectMode === 'new' ? (
+            <>Pick a repository that contains <code>AGENTS.md</code> and <code>PRD.md</code> in its root.</>
+          ) : (
+            <>Pick an existing repository that contains <code>AGENTS.md</code>. <code>PRD.md</code> is optional — a stub will be created if missing so the PRD Refiner can describe your requested deltas.</>
+          )}
+        </p>
 
         <label>Target repository</label>
         <div className="cruise-row">
@@ -789,9 +860,62 @@ function StartDialog({ onCancel, onStart, busy }: {
           <button
             className="cruise-primary"
             disabled={!repo.trim() || busy}
-            onClick={() => onStart(repo.trim(), { autoApprovePRD: autoApprove, maxReviewCycles: maxCycles })}
+            onClick={() => onStart(repo.trim(), { autoApprovePRD: autoApprove, maxReviewCycles: maxCycles, projectMode })}
           >
             Start
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContinueGoalsModal({ onCancel, onContinue, busy }: {
+  onCancel: () => void;
+  onContinue: (goals: string[]) => void;
+  busy: boolean;
+}) {
+  const [text, setText] = useState('');
+
+  const parseGoals = (raw: string): string[] => {
+    // Goals are separated by blank lines (so a goal can span multiple
+    // lines for context), and trimmed. Empty entries are dropped.
+    return raw
+      .split(/\n\s*\n/)
+      .map(g => g.trim())
+      .filter(g => g.length > 0);
+  };
+
+  const goals = parseGoals(text);
+  const canSubmit = goals.length > 0 && !busy;
+
+  return (
+    <div className="cruise-start-overlay">
+      <div className="cruise-start-dialog">
+        <h2>Add new goals &amp; continue</h2>
+        <p>
+          The build team will re-engage on this run with the goals below. Each
+          goal should be separated by a blank line. They are treated as
+          ADDITIVE work on top of the existing build (no rewrite).
+        </p>
+
+        <label>New goals (one per blank-line-separated block)</label>
+        <textarea
+          className="cruise-prd-editor"
+          rows={10}
+          placeholder={'Add JWT auth to /api/*\n\nAdd a /healthz endpoint that returns {status, ts}\n\nRefactor the user model to include a `deleted_at` column'}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+
+        <div className="cruise-start-actions">
+          <button onClick={onCancel} disabled={busy}>Cancel</button>
+          <button
+            className="cruise-primary"
+            disabled={!canSubmit}
+            onClick={() => onContinue(goals)}
+          >
+            Continue ({goals.length} {goals.length === 1 ? 'goal' : 'goals'})
           </button>
         </div>
       </div>

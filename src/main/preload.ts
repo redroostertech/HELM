@@ -198,6 +198,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('cruise:approvePRD', runId, editedContent),
     submitReviewDecision: (runId: number, decision: 'accept' | 'request-changes') =>
       ipcRenderer.invoke('cruise:submitReviewDecision', runId, decision),
+    continueWithGoals: (runId: number, goals: string[]) =>
+      ipcRenderer.invoke('cruise:continueWithGoals', runId, goals),
     pickRepo: () => ipcRenderer.invoke('cruise:pickRepo'),
     listGoals: (runId: number) => ipcRenderer.invoke('cruise:listGoals', runId),
     updateGoal: (goalId: number, status: 'open' | 'in_progress' | 'done' | 'deferred') =>
@@ -361,6 +363,7 @@ export interface ElectronAPI {
     getRun: (runId: number) => Promise<{ run: any; agents: any[]; events: any[]; artifacts: { runDirExists: boolean; files: string[] } } | null>;
     start: (config: {
       targetRepo: string;
+      projectMode?: 'new' | 'existing';
       agents?: Array<{ role: 'prd-refiner' | 'builder' | 'reviewer'; programId: string; label?: string }>;
       idleThresholdMs?: number;
       autoApprovePRD?: boolean;
@@ -372,6 +375,7 @@ export interface ElectronAPI {
     delete: (runId: number) => Promise<{ ok: boolean }>;
     approvePRD: (runId: number, editedContent?: string) => Promise<{ ok: boolean }>;
     submitReviewDecision: (runId: number, decision: 'accept' | 'request-changes') => Promise<{ ok: boolean }>;
+    continueWithGoals: (runId: number, goals: string[]) => Promise<{ ok: boolean }>;
     pickRepo: () => Promise<{ path: string | null }>;
     listGoals: (runId: number) => Promise<Array<{
       id: number;

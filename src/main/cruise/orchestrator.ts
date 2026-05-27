@@ -43,6 +43,8 @@ import {
   builderSlotPrompt,
   reviewerSlotPrompt,
   planContinuationPrompt,
+  builderContinuationPrompt,
+  reviewerContinuationPrompt,
   runDirForRun,
   phaseLeadPrompt,
   deliverMessage,
@@ -139,11 +141,20 @@ export class CruiseOrchestrator {
   // ── Public API ────────────────────────────────────────────────────
 
   async start(config: CruiseRunConfig): Promise<{ runId: number }> {
-    const validate = ArtifactStore.validateRepo(config.targetRepo);
+    const projectMode: 'new' | 'existing' = config.projectMode === 'existing' ? 'existing' : 'new';
+    const validate = ArtifactStore.validateRepo(config.targetRepo, projectMode);
     if (!validate.ok) throw new Error(validate.error || 'invalid repo');
+
+    // For existing-project runs, materialize a PRD.md stub if one is missing
+    // so the PRD-refiner has something to refine against. The stub also
+    // explicitly cues the refiner to do an exploration pass first.
+    if (projectMode === 'existing') {
+      try { ArtifactStore.ensurePrdStub(config.targetRepo); } catch {}
+    }
 
     const fullConfig: CruiseRunConfig = {
       ...config,
+      projectMode,
       idleThresholdMs: config.idleThresholdMs ?? 4000,
       autoApprovePRD: config.autoApprovePRD ?? false,
       maxReviewCycles: config.maxReviewCycles ?? 3,
@@ -339,6 +350,90 @@ export class CruiseOrchestrator {
       acceptanceCriteria: goal.acceptance_criteria || [],
       ownerRole: goal.owner_role, status,
     });
+  }
+
+  /**
+   * Re-open a `done` run with additional goals.
+   *
+   * The original team's tabs may still be alive (the run only became `done`
+   * a moment ago) or may have been finalized (`finalize` kills agent tabs).
+   * Either way we:
+   *   - Load (or re-hydrate) the run.
+   *   - Flip status back to running, phase back to build.
+   *   - Re-spawn any agents whose tabs are gone, kick them off, and queue
+   *     the continuation prompt to land after kickoff.
+   *   - For agents whose tabs are still alive, inject the continuation
+   *     prompt directly.
+   *   - Emit a RUN_CONTINUED audit event with the new goals.
+   */
+  async continueWithGoals(runId: number, goals: string[]): Promise<void> {
+    const cleanedGoals = (goals || []).map(g => (g || '').trim()).filter(g => g.length > 0);
+    if (cleanedGoals.length === 0) throw new Error('at least one goal is required to continue');
+
+    let run = this.runs.get(runId);
+    if (!run) {
+      await this.rehydrateRun(runId);
+      run = this.requireRun(runId);
+    }
+    if (run.phase !== 'done') {
+      throw new Error(`continueWithGoals: run is in phase '${run.phase}', only 'done' runs can be continued`);
+    }
+
+    const fromPhase = run.phase;
+    run.phase = 'build';
+    run.previousPhase = fromPhase;
+    run.paused = false;
+    run.buildersCompleted.clear();
+    run.reviewersAccepted.clear();
+    await this.db.updateCruiseRun(runId, {
+      status: 'running',
+      current_phase: 'build',
+      ended_at: null,
+    });
+    await this.appendEvent(run, null, EVENT_TYPES.PHASE_EXITED, { phase: fromPhase });
+    await this.appendEvent(run, null, EVENT_TYPES.PHASE_ENTERED, { phase: 'build', reviewCycle: run.reviewCycle, continuation: true });
+    await this.appendEvent(run, null, EVENT_TYPES.RUN_CONTINUED, { goals: cleanedGoals, fromPhase });
+    this.hooks.broadcast('cruise:phase-changed', { runId, from: fromPhase, to: 'build', at: Date.now() } as PhaseChangeSignal);
+
+    const ctx = this.promptCtx(run);
+    const builderMsg = builderContinuationPrompt(cleanedGoals, ctx);
+    const reviewerMsg = reviewerContinuationPrompt(cleanedGoals, ctx);
+
+    for (const ag of run.agents) {
+      const isBuilder = ag.role.startsWith('builder-');
+      const isReviewer = ag.role.startsWith('reviewer-');
+      if (!isBuilder && !isReviewer) continue;
+      const msg = isBuilder ? builderMsg : reviewerMsg;
+
+      const tabAlive = !!ag.tabId
+        && this.agentByTabId.has(ag.tabId)
+        && ag.status !== 'killed'
+        && ag.status !== 'failed';
+      if (tabAlive && ag.tabId) {
+        ag.kickedOff = true;
+        ag.status = 'active';
+        try { await this.db.updateCruiseAgent(ag.agentId, { status: 'active', ended_at: null }); } catch {}
+        await this.injectIntoAgent(ag.tabId, msg);
+        await this.appendEvent(run, ag.agentId, EVENT_TYPES.AGENT_KICKED_OFF, {
+          role: ag.role, continuation: true,
+        });
+      } else {
+        if (ag.tabId) this.agentByTabId.delete(ag.tabId);
+        if (ag.cliSessionId) {
+          this.agentByCliSession.delete(ag.cliSessionId);
+          this.attention.unwatch(ag.cliSessionId);
+          ag.cliSessionId = null;
+        }
+        ag.tabId = null;
+        ag.kickedOff = false;
+        ag.status = 'pending';
+        ag.pendingMessages.push({ from: 'user', body: msg });
+        await this.spawnAgent(run, ag);
+        await this.appendEvent(run, ag.agentId, EVENT_TYPES.AGENT_KICKED_OFF, {
+          role: ag.role, continuation: true, respawned: true,
+        });
+      }
+    }
   }
 
   // ── Read API ──────────────────────────────────────────────────────
@@ -696,6 +791,7 @@ export class CruiseOrchestrator {
       reviewCycle: run.reviewCycle,
       previousReviewNotes: run.reviewCycle > 0 ? run.store.readReview(run.runId, run.reviewCycle - 1) || undefined : undefined,
       team: run.team ? { builders: run.team.builders, reviewers: run.team.reviewers } : undefined,
+      projectMode: run.config.projectMode === 'existing' ? 'existing' as const : 'new' as const,
     };
   }
 
@@ -1042,6 +1138,19 @@ export class CruiseOrchestrator {
       pendingMessages: [],
     }));
 
+    // Try to recover the team roster from DEVELOPMENT_PLAN.md so resumed
+    // runs (and Continue-from-Done) have the slot specs every builder/
+    // reviewer agent's kickoff prompt needs.
+    let team: TeamSpec | null = null;
+    try {
+      const planPath = path.join(dbRun.target_repo, 'DEVELOPMENT_PLAN.md');
+      if (fs.existsSync(planPath)) {
+        const txt = fs.readFileSync(planPath, 'utf-8');
+        const parsed = extractTeam(txt);
+        if (parsed) team = clampTeam(parsed).team;
+      }
+    } catch {}
+
     const run: RunState = {
       runId,
       config: typeof dbRun.config === 'string' ? JSON.parse(dbRun.config) : dbRun.config,
@@ -1051,7 +1160,7 @@ export class CruiseOrchestrator {
       reviewCycle: dbRun.review_cycle,
       agents: agentStates,
       paused: false,
-      team: null, // resumed runs re-parse DEVELOPMENT_PLAN.md from disk on next plan-load
+      team,
       buildersCompleted: new Set(),
       reviewersAccepted: new Set(),
     };
