@@ -11,6 +11,7 @@ import ChatPane from './components/ChatPane';
 import SessionsPane from './components/SessionsPane';
 import SessionSearch from './components/SessionSearch';
 import CruisePanel from './components/CruisePanel';
+import AppMonitor from './components/AppMonitor';
 
 const DEFAULT_SETTINGS = {
   theme: 'dark' as const,
@@ -88,6 +89,7 @@ function App() {
   const [searchFeatureEnabled, setSearchFeatureEnabled] = useState(false);
   const [cruiseOpen, setCruiseOpen] = useState(false);
   const [cruiseAttention, setCruiseAttention] = useState<Record<string, string | null>>({});
+  const [appMonitorOpen, setAppMonitorOpen] = useState(false);
 
   // AI features require authentication
   const isAuthenticated = authState.isAuthenticated;
@@ -127,7 +129,7 @@ function App() {
   // Refit terminal when panels toggle (including Cruise full-screen)
   useEffect(() => {
     setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
-  }, [chatOpen, sidebarOpen, sessionsOpen, cruiseOpen]);
+  }, [chatOpen, sidebarOpen, sessionsOpen, cruiseOpen, appMonitorOpen]);
 
   useEffect(() => {
     window.electronAPI.settingsLoad().then((saved: any) => {
@@ -354,11 +356,20 @@ function App() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         cruiseOpen={cruiseOpen}
-        onToggleCruise={() => setCruiseOpen(!cruiseOpen)}
+        onToggleCruise={() => {
+          // Cruise and AppMonitor are mutually exclusive full-screen overlays
+          if (!cruiseOpen) setAppMonitorOpen(false);
+          setCruiseOpen(!cruiseOpen);
+        }}
+        appMonitorOpen={appMonitorOpen}
+        onToggleAppMonitor={() => {
+          if (!appMonitorOpen) setCruiseOpen(false);
+          setAppMonitorOpen(!appMonitorOpen);
+        }}
       />
 
-      {/* Address bar — hidden but kept mounted when Cruise is full-screen */}
-      <div style={{ display: cruiseOpen ? 'none' : 'block' }}>
+      {/* Address bar — hidden but kept mounted when Cruise/AppMonitor full-screen */}
+      <div style={{ display: (cruiseOpen || appMonitorOpen) ? 'none' : 'block' }}>
         <AddressBar
           currentPath={currentPath}
           onNavigate={handleNavigate}
@@ -368,15 +379,20 @@ function App() {
       {/* Cruise Control full-screen — overlays main-content when active.
           We keep main-content mounted (display:none) so its TerminalPanes
           stay alive and PTYs aren't killed by unmount. */}
-      {cruiseOpen && (
+      {cruiseOpen && !appMonitorOpen && (
         <CruisePanel
           theme={settings.theme}
           onAttentionChange={setCruiseAttention}
         />
       )}
 
-      {/* Main content (always mounted; hidden when Cruise is open) */}
-      <div className="main-content" style={{ display: cruiseOpen ? 'none' : 'flex' }}>
+      {/* AppMonitor full-screen — same pattern as Cruise. */}
+      {appMonitorOpen && (
+        <AppMonitor theme={settings.theme} />
+      )}
+
+      {/* Main content (always mounted; hidden when Cruise or AppMonitor open) */}
+      <div className="main-content" style={{ display: (cruiseOpen || appMonitorOpen) ? 'none' : 'flex' }}>
         {/* Chat pane (left side) — hidden when not authenticated */}
         <ChatPane
           isOpen={chatOpen}
@@ -391,7 +407,7 @@ function App() {
               key={tab.id}
               tabId={tab.id}
               theme={settings.theme}
-              isVisible={!cruiseOpen && tab.id === activeTabId}
+              isVisible={!cruiseOpen && !appMonitorOpen && tab.id === activeTabId}
               onAskClaude={handleAsk}
             />
           ))}
