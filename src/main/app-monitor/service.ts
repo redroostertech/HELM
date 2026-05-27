@@ -46,6 +46,40 @@ function normalizeLocalUrl(url: string): string {
 }
 
 /**
+ * Read explicit URL targets from .cruise/targets.json. This is the
+ * authoritative source for "what URLs does this project serve" when the
+ * builder agents have populated it. Returns undefined if missing or
+ * malformed (caller falls back to regex-based URL detection).
+ */
+function readTargetsFromDir(dir: string): import('./types').AppMonitorTarget[] | undefined {
+  const p = path.join(dir, '.cruise', 'targets.json');
+  if (!fs.existsSync(p)) return undefined;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    const raw = Array.isArray(parsed) ? parsed : parsed?.targets;
+    if (!Array.isArray(raw)) return undefined;
+    const out: import('./types').AppMonitorTarget[] = [];
+    for (const t of raw) {
+      if (!t || typeof t.name !== 'string' || typeof t.url !== 'string') continue;
+      out.push({
+        name: t.name,
+        url: normalizeLocalUrl(t.url),
+        primary: !!t.primary,
+        description: typeof t.description === 'string' ? t.description : undefined,
+      });
+    }
+    // Ensure at most one primary; default to first if none set.
+    if (out.length > 0) {
+      const hasPrimary = out.some(t => t.primary);
+      if (!hasPrimary) out[0].primary = true;
+    }
+    return out.length > 0 ? out : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * AppMonitor service. v0 stores sessions in-memory only — persistence
  * (e.g. ~/Library/Application Support/Helm/app-monitor/sessions/) is a TODO.
  *
@@ -117,6 +151,11 @@ export class AppMonitorService {
     if (!dir || !fs.existsSync(dir)) return { ok: false, error: `directory not found: ${dir}` };
     if (!fs.statSync(dir).isDirectory()) return { ok: false, error: `not a directory: ${dir}` };
 
+    // Load explicit targets if present. The builder is expected to write this
+    // as part of BUILD_COMPLETE so AppMonitor knows the canonical URLs for
+    // every service the project exposes — not just the first one that prints.
+    const targets = readTargetsFromDir(dir);
+
     // install.sh + run.sh are the canonical Cruise-generated launchers. When
     // either is present we promote them above npm scripts — the builder agents
     // know best how to start what they built.
@@ -158,7 +197,7 @@ export class AppMonitorService {
       if (hasRun && !runExec) suggestions.push('chmod +x run.sh');
       if (!hasInstall) suggestions.push('No install.sh — Cruise expects one. (run.sh alone is OK if deps are pre-installed.)');
       if (!hasRun) suggestions.push('No run.sh — Cruise builders should generate one before BUILD_COMPLETE.');
-      return { ok: true, kind: 'node', scripts, suggestions };
+      return { ok: true, kind: 'node', scripts, suggestions, targets };
     }
 
     const pkgPath = path.join(dir, 'package.json');
@@ -175,23 +214,23 @@ export class AppMonitorService {
           if (priority.includes(name)) continue;
           ordered.push({ name, command: `npm run ${name}` });
         }
-        return { ok: true, kind: 'node', scripts: ordered, suggestions: [] };
+        return { ok: true, kind: 'node', scripts: ordered, suggestions: [], targets };
       } catch (e: unknown) {
         return { ok: false, error: 'failed to parse package.json: ' + (e instanceof Error ? e.message : String(e)) };
       }
     }
 
     if (fs.existsSync(path.join(dir, 'manage.py'))) {
-      return { ok: true, kind: 'python', scripts: [], suggestions: ['python manage.py runserver'] };
+      return { ok: true, kind: 'python', scripts: [], suggestions: ['python manage.py runserver'], targets };
     }
     if (fs.existsSync(path.join(dir, 'pyproject.toml'))) {
-      return { ok: true, kind: 'python', scripts: [], suggestions: ['python -m http.server 8000', 'uvicorn main:app --reload'] };
+      return { ok: true, kind: 'python', scripts: [], suggestions: ['python -m http.server 8000', 'uvicorn main:app --reload'], targets };
     }
     if (fs.existsSync(path.join(dir, 'index.html'))) {
-      return { ok: true, kind: 'static', scripts: [], suggestions: ['python3 -m http.server 8000', 'npx http-server -p 8000'] };
+      return { ok: true, kind: 'static', scripts: [], suggestions: ['python3 -m http.server 8000', 'npx http-server -p 8000'], targets };
     }
 
-    return { ok: true, kind: 'unknown', scripts: [], suggestions: [] };
+    return { ok: true, kind: 'unknown', scripts: [], suggestions: [], targets };
   }
 
   /**

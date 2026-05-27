@@ -81,9 +81,12 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
     kind?: 'node' | 'python' | 'static' | 'unknown';
     scripts?: Array<{ name: string; command: string }>;
     suggestions?: string[];
+    targets?: Array<{ name: string; url: string; primary?: boolean; description?: string }>;
   } | null>(null);
   const [launchCommand, setLaunchCommand] = useState('');
   const [launching, setLaunching] = useState(false);
+  // URL targets resolved from .cruise/targets.json for the active session
+  const [sessionTargets, setSessionTargets] = useState<Record<string, Array<{ name: string; url: string; primary?: boolean; description?: string }>>>({});
   const [cruiseRuns, setCruiseRuns] = useState<Array<{ id: number; target_repo: string; status: string }>>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [runRoles, setRunRoles] = useState<string[]>([]);
@@ -304,9 +307,14 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
     if (!dirPath || !launchCommand.trim()) return;
     setLaunching(true);
     const sessionId = newSessionId();
+    // Use the primary target URL if explicit targets are defined, so the
+    // webview starts pointing at the right service even before the child
+    // process becomes reachable.
+    const primaryTarget = dirInspect?.targets?.find(t => t.primary);
+    const initialUrl = primaryTarget?.url || 'about:blank';
     const session: AppMonitorSession = {
       id: sessionId,
-      url: 'about:blank',
+      url: initialUrl,
       startedAt: Date.now(),
       endedAt: null,
       events: [{
@@ -318,6 +326,9 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
         meta: { cwd: dirPath, command: launchCommand },
       }],
     };
+    if (dirInspect?.targets && dirInspect.targets.length > 0) {
+      setSessionTargets(prev => ({ ...prev, [sessionId]: dirInspect.targets! }));
+    }
     setSessions(prev => [session, ...prev]);
     setActiveSessionId(sessionId);
     try {
@@ -528,6 +539,23 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
         {/* Webview + feed split */}
         <div className="am-split">
           <div className="am-viewport-wrap">
+            {activeSession && sessionTargets[activeSession.id] && sessionTargets[activeSession.id].length > 0 && (
+              <div className="am-targets">
+                {sessionTargets[activeSession.id].map(t => (
+                  <button
+                    key={t.url}
+                    className={`am-target-chip ${activeSession.url === t.url ? 'active' : ''}`}
+                    title={t.description ? `${t.description} — ${t.url}` : t.url}
+                    onClick={() => {
+                      setSessions(prev => prev.map(s => s.id === activeSession.id ? { ...s, url: t.url } : s));
+                    }}
+                  >
+                    {t.name}
+                    {t.primary && <span className="am-target-primary">★</span>}
+                  </button>
+                ))}
+              </div>
+            )}
             {activeSession && activeSession.url && activeSession.url !== 'about:blank' ? (
               <webview
                 key={activeSession.id + '|' + activeSession.url}

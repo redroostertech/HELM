@@ -433,6 +433,7 @@ export interface ElectronAPI {
       kind?: 'node' | 'python' | 'static' | 'unknown';
       scripts?: Array<{ name: string; command: string }>;
       suggestions?: string[];
+      targets?: Array<{ name: string; url: string; primary?: boolean; description?: string }>;
     }>;
     launchChild: (args: { sessionId: string; cwd: string; command: string }) =>
       Promise<{ ok: boolean; pid?: number; error?: string }>;

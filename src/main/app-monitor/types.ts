@@ -38,6 +38,13 @@ export interface ForwardToCruiseArgs {
   severity: AppMonitorSeverity | 'critical';
 }
 
+export interface AppMonitorTarget {
+  name: string;
+  url: string;
+  primary?: boolean;
+  description?: string;
+}
+
 export interface DirectoryInspection {
   ok: boolean;
   error?: string;
@@ -47,6 +54,8 @@ export interface DirectoryInspection {
   scripts?: Array<{ name: string; command: string }>;
   /** Suggested fallback commands (host + port hints) */
   suggestions?: string[];
+  /** Explicit URL targets from .cruise/targets.json (authoritative when present) */
+  targets?: AppMonitorTarget[];
 }
 
 export interface LaunchChildArgs {
