@@ -262,14 +262,20 @@ export class CLIConversationWatcher {
 
       if (!content.trim()) return;
 
-      // Find the most recent input for this CLI session and attach the response
+      // ALWAYS emit the event so in-process subscribers (orchestrators, mobile
+      // relay) see every turn of a multi-turn assistant response — Claude
+      // Code may emit several assistant entries per user input (one per
+      // tool-call turn) and downstream consumers need them all.
+      this.emitEvent({ type: 'assistant_response', cliSessionId, content: content.trim() });
+      console.log(`💬 Claude Code response chunk (${content.trim().length} chars)`);
+
+      // For the DB: attach only the FIRST chunk per input as output_preview
+      // (preserves the existing "one response per prompt" view in the UI).
       const inputs = await this.db.getCLIInputs(cliSessionId);
       if (inputs.length > 0) {
         const lastInput = inputs[inputs.length - 1];
         if (!lastInput.output_preview) {
           await this.db.updateCLIInputResponse(lastInput.id, content.trim());
-          this.emitEvent({ type: 'assistant_response', cliSessionId, content: content.trim() });
-          console.log(`💬 Claude Code response saved (${content.trim().length} chars)`);
         }
       }
     }

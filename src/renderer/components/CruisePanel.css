@@ -1,0 +1,724 @@
+.cruise-panel {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  background: #1e1e1e;
+  color: #d4d4d4;
+}
+
+[data-theme="light"] .cruise-panel {
+  background: #f5f5f5;
+  color: #333;
+}
+
+/* ── Sidebar (run list) ──────────────────────────────────────── */
+
+.cruise-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  border-right: 1px solid #333;
+}
+
+[data-theme="light"] .cruise-sidebar {
+  background: #f0f0f0;
+  border-right-color: #ddd;
+}
+
+.cruise-sidebar-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+[data-theme="light"] .cruise-sidebar-header {
+  border-bottom-color: #ddd;
+}
+
+.cruise-sidebar-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.cruise-panel button.cruise-new-btn {
+  background: #0e639c;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cruise-panel button.cruise-new-btn:hover { background: #1177bb; }
+
+.cruise-run-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.cruise-empty {
+  padding: 24px 12px;
+  font-size: 12px;
+  color: #888;
+  text-align: center;
+}
+
+.cruise-run-item {
+  position: relative;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: #2d2d30;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.cruise-run-item:hover { background: #3c3c3c; }
+.cruise-run-item.active { background: #094771; border-color: #0e639c; }
+
+[data-theme="light"] .cruise-run-item { background: #fff; }
+[data-theme="light"] .cruise-run-item:hover { background: #f0f7ff; }
+[data-theme="light"] .cruise-run-item.active { background: #e0eefe; border-color: #0e639c; }
+
+.cruise-run-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.cruise-run-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: #888;
+}
+
+.cruise-status-pill {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cruise-status-pill.status-running { background: rgba(58, 179, 110, 0.15); color: #3ab36e; }
+.cruise-status-pill.status-paused { background: rgba(245, 166, 35, 0.15); color: #f5a623; }
+.cruise-status-pill.status-stopped { background: rgba(136, 136, 136, 0.15); color: #aaa; }
+.cruise-status-pill.status-done { background: rgba(74, 158, 255, 0.15); color: #4a9eff; }
+.cruise-status-pill.status-failed { background: rgba(232, 90, 79, 0.15); color: #e85a4f; }
+
+/* Defeat the global `button` blue background; specificity raised to
+   `.cruise-panel button.cruise-*` everywhere we need the global override. */
+
+.cruise-panel button.cruise-run-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: #888;
+  font-size: 0;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.cruise-panel button.cruise-run-delete::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><line x1='18' y1='6' x2='6' y2='18'/><line x1='6' y1='6' x2='18' y2='18'/></svg>");
+  background-size: contain;
+  background-repeat: no-repeat;
+  transition: filter 0.12s;
+}
+
+.cruise-run-item:hover .cruise-run-delete { opacity: 1; }
+.cruise-panel button.cruise-run-delete:hover {
+  background: rgba(232, 90, 79, 0.15);
+  color: #e85a4f;
+}
+.cruise-panel button.cruise-run-delete:hover::before {
+  filter: brightness(0) saturate(100%) invert(50%) sepia(78%) saturate(2876%) hue-rotate(335deg) brightness(94%) contrast(89%);
+}
+
+[data-theme="light"] .cruise-panel button.cruise-run-delete { color: #888; }
+
+/* ── Main area ──────────────────────────────────────────────── */
+
+.cruise-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.cruise-welcome {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px;
+}
+
+.cruise-welcome h1 {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  letter-spacing: -0.03em;
+}
+
+.cruise-welcome p {
+  font-size: 14px;
+  color: #888;
+  max-width: 480px;
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.cruise-panel button.cruise-primary {
+  background: #0e639c;
+  color: white;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cruise-panel button.cruise-primary:hover { background: #1177bb; }
+.cruise-panel button.cruise-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.cruise-error {
+  margin: 12px 16px;
+  padding: 10px 12px;
+  background: rgba(232, 90, 79, 0.15);
+  border: 1px solid rgba(232, 90, 79, 0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cruise-panel .cruise-error button {
+  background: transparent;
+  color: #e85a4f;
+  border: 1px solid rgba(232, 90, 79, 0.5);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* ── Run header ─────────────────────────────────────────────── */
+
+.cruise-run-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+[data-theme="light"] .cruise-run-header { border-bottom-color: #ddd; }
+
+.cruise-run-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.cruise-run-header-meta {
+  font-size: 11px;
+  color: #888;
+  margin-top: 2px;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.cruise-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.cruise-panel .cruise-controls button {
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cruise-panel .cruise-controls button:hover { background: #4c4c4c; }
+.cruise-panel .cruise-controls button.danger { background: #6e2c20; color: #f4b4ad; }
+.cruise-panel .cruise-controls button.danger:hover { background: #c72e0f; color: #fff; }
+.cruise-panel .cruise-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.cruise-run-done-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(74, 158, 255, 0.12);
+  color: #4a9eff;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ── Timeline ──────────────────────────────────────────────── */
+
+.cruise-timeline {
+  padding: 12px 20px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+[data-theme="light"] .cruise-timeline { border-bottom-color: #ddd; }
+
+.cruise-timeline-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+
+.cruise-timeline-step:not(:last-of-type)::after {
+  content: '';
+  display: inline-block;
+  width: 24px;
+  height: 1px;
+  background: #555;
+  margin-left: 4px;
+}
+
+.cruise-timeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #555;
+}
+
+.cruise-timeline-step.past .cruise-timeline-dot { background: #3ab36e; }
+.cruise-timeline-step.current .cruise-timeline-dot {
+  background: #0e639c;
+  box-shadow: 0 0 0 4px rgba(14, 99, 156, 0.2);
+}
+
+.cruise-timeline-label {
+  font-size: 11px;
+  color: #888;
+  font-weight: 500;
+}
+
+.cruise-timeline-step.current .cruise-timeline-label { color: #d4d4d4; font-weight: 600; }
+
+.cruise-timeline-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: #888;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+/* ── Agent cards ───────────────────────────────────────────── */
+
+.cruise-agents {
+  display: flex;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #333;
+}
+
+[data-theme="light"] .cruise-agents { border-bottom-color: #ddd; }
+
+.cruise-agent-card {
+  flex: 1;
+  padding: 10px 12px;
+  background: #2d2d30;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+[data-theme="light"] .cruise-agent-card { background: #fff; }
+
+.cruise-agent-card:hover { background: #3c3c3c; }
+[data-theme="light"] .cruise-agent-card:hover { background: #f0f7ff; }
+
+.cruise-agent-card.focused {
+  border-color: #0e639c;
+  box-shadow: 0 0 0 1px #0e639c;
+}
+
+.cruise-agent-card.attention {
+  border-color: #f5a623;
+  box-shadow: 0 0 0 1px #f5a623, 0 0 18px rgba(245, 166, 35, 0.3);
+  animation: cruise-attention-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cruise-attention-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px #f5a623, 0 0 18px rgba(245, 166, 35, 0.3); }
+  50%      { box-shadow: 0 0 0 2px #f5a623, 0 0 28px rgba(245, 166, 35, 0.5); }
+}
+
+.cruise-agent-role {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.cruise-agent-program {
+  font-size: 10px;
+  color: #888;
+  margin-bottom: 6px;
+}
+
+.cruise-agent-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cruise-agent-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.cruise-agent-attention {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #f5a623;
+  font-weight: 500;
+}
+
+.cruise-agent-msgs {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: #aaa;
+  align-items: center;
+}
+
+[data-theme="light"] .cruise-agent-msgs { border-top-color: rgba(0,0,0,0.08); color: #666; }
+
+.cruise-agent-last-msg {
+  margin-left: auto;
+  font-size: 10px;
+  color: #4a9eff;
+  font-weight: 500;
+}
+
+.cruise-agent-tasks {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cruise-task-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+}
+
+.cruise-task-pill.assigned {
+  background: rgba(245, 166, 35, 0.18);
+  color: #f5a623;
+}
+
+.cruise-task-pill.created {
+  background: rgba(192, 132, 252, 0.15);
+  color: #c084fc;
+}
+
+.cruise-audit-item.evt-task    .cruise-audit-type { color: #f5a623; }
+.cruise-audit-item.evt-task { background: rgba(245, 166, 35, 0.04); }
+.cruise-audit-item.evt-team    .cruise-audit-type { color: #3ab36e; }
+
+/* ── PRD approval gate ───────────────────────────────────── */
+
+.cruise-approval-gate {
+  margin: 12px 20px;
+  padding: 16px;
+  background: rgba(14, 99, 156, 0.1);
+  border: 1px solid rgba(14, 99, 156, 0.3);
+  border-radius: 8px;
+}
+
+.cruise-approval-gate h3 {
+  margin: 0 0 6px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a9eff;
+}
+
+.cruise-approval-gate p {
+  font-size: 12px;
+  color: #aaa;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.cruise-approval-gate code {
+  background: #222;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.cruise-prd-editor {
+  width: 100%;
+  min-height: 140px;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 10px;
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.cruise-approval-actions {
+  margin-top: 10px;
+}
+
+/* ── Terminal area ──────────────────────────────────────── */
+
+.cruise-terminal-area {
+  flex: 1;
+  display: flex;
+  min-height: 240px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #333;
+  overflow: hidden;
+}
+
+[data-theme="light"] .cruise-terminal-area { background: #fff; border-bottom-color: #ddd; }
+
+.cruise-terminal-area > * { flex: 1; }
+
+.cruise-no-terminal {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 12px;
+}
+
+/* ── Audit log ─────────────────────────────────────────── */
+
+.cruise-audit {
+  height: 180px;
+  display: flex;
+  flex-direction: column;
+  background: #252526;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .cruise-audit { background: #f8f8f8; }
+
+.cruise-audit-header {
+  padding: 6px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  border-bottom: 1px solid #333;
+}
+
+[data-theme="light"] .cruise-audit-header { border-bottom-color: #ddd; }
+
+.cruise-audit-list {
+  flex: 1;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-size: 11px;
+}
+
+.cruise-audit-item {
+  display: flex;
+  gap: 8px;
+  padding: 3px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+
+[data-theme="light"] .cruise-audit-item { border-bottom-color: rgba(0,0,0,0.04); }
+
+.cruise-audit-ts { color: #666; min-width: 70px; }
+.cruise-audit-type { color: #4a9eff; min-width: 140px; font-weight: 600; }
+.cruise-audit-phase { color: #888; min-width: 90px; }
+.cruise-audit-payload { color: #aaa; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cruise-audit-item.evt-run     .cruise-audit-type { color: #3ab36e; }
+.cruise-audit-item.evt-agent   .cruise-audit-type { color: #4a9eff; }
+.cruise-audit-item.evt-phase   .cruise-audit-type { color: #f5a623; }
+.cruise-audit-item.evt-error   .cruise-audit-type { color: #e85a4f; }
+.cruise-audit-item.evt-message .cruise-audit-type { color: #c084fc; }
+.cruise-audit-item.evt-message { background: rgba(192, 132, 252, 0.05); }
+
+/* ── Start dialog ─────────────────────────────────────── */
+
+.cruise-start-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.cruise-start-dialog {
+  width: 500px;
+  background: #252526;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+[data-theme="light"] .cruise-start-dialog { background: #fff; border-color: #ddd; }
+
+.cruise-start-dialog h2 {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.cruise-start-dialog p {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+
+.cruise-start-dialog code {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+[data-theme="light"] .cruise-start-dialog code { background: #f0f0f0; color: #333; }
+
+.cruise-start-dialog label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #aaa;
+  margin: 14px 0 4px 0;
+}
+
+.cruise-start-dialog input[type="text"],
+.cruise-start-dialog input[type="number"] {
+  width: 100%;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border: 1px solid #444;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+[data-theme="light"] .cruise-start-dialog input[type="text"],
+[data-theme="light"] .cruise-start-dialog input[type="number"] {
+  background: #fff;
+  color: #333;
+  border-color: #ccc;
+}
+
+.cruise-row { display: flex; gap: 8px; }
+.cruise-row input { flex: 1; }
+.cruise-panel .cruise-row button {
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: none;
+  padding: 0 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cruise-panel .cruise-row button:hover { background: #4c4c4c; }
+
+.cruise-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin: 14px 0 4px 0;
+  cursor: pointer;
+}
+
+.cruise-checkbox input { margin: 0; }
+
+.cruise-start-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.cruise-panel .cruise-start-actions button {
+  background: #3c3c3c;
+  color: #d4d4d4;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cruise-panel .cruise-start-actions button.cruise-primary { background: #0e639c; color: white; padding: 8px 18px; }
+.cruise-panel .cruise-start-actions button:hover { background: #4c4c4c; }
+.cruise-panel .cruise-start-actions button.cruise-primary:hover { background: #1177bb; }
+.cruise-panel .cruise-start-actions button:disabled { opacity: 0.4; cursor: not-allowed; }

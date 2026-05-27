@@ -165,6 +165,9 @@ export class PTYManager {
       setTimeout(() => {
         if (!initialCommandSent) {
           initialCommandSent = true;
+          // Seed currentCommand so the onData/'\r' boundary triggers
+          // captureCommand → CLI detection just like a human-typed command.
+          instance.currentCommand = pendingInitialCommand;
           try { ptyProcess.write(pendingInitialCommand + '\r'); } catch {}
         }
       }, 3000);
@@ -223,9 +226,12 @@ export class PTYManager {
           instance.shellPromptSample = lines[lines.length - 1].trim();
           hasSeenFirstPrompt = true;
 
-          // Now that the shell is ready, run any queued initial command
+          // Now that the shell is ready, run any queued initial command.
+          // Seed currentCommand first so captureCommand detects CLI programs
+          // (claude, codex, etc.) the same way it does for human-typed input.
           if (pendingInitialCommand && !initialCommandSent) {
             initialCommandSent = true;
+            instance.currentCommand = pendingInitialCommand;
             try { ptyProcess.write(pendingInitialCommand + '\r'); } catch {}
           }
         }

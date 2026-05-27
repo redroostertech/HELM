@@ -184,6 +184,52 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendTabsResponse: (requestId: string, tabs: any[]) => {
     ipcRenderer.send('helm:tabsResponse', requestId, tabs);
   },
+
+  // Cruise Control
+  cruise: {
+    listRuns: () => ipcRenderer.invoke('cruise:listRuns'),
+    getRun: (runId: number) => ipcRenderer.invoke('cruise:getRun', runId),
+    start: (config: any) => ipcRenderer.invoke('cruise:start', config),
+    pause: (runId: number) => ipcRenderer.invoke('cruise:pause', runId),
+    resume: (runId: number) => ipcRenderer.invoke('cruise:resume', runId),
+    stop: (runId: number) => ipcRenderer.invoke('cruise:stop', runId),
+    delete: (runId: number) => ipcRenderer.invoke('cruise:delete', runId),
+    approvePRD: (runId: number, editedContent?: string) =>
+      ipcRenderer.invoke('cruise:approvePRD', runId, editedContent),
+    submitReviewDecision: (runId: number, decision: 'accept' | 'request-changes') =>
+      ipcRenderer.invoke('cruise:submitReviewDecision', runId, decision),
+    pickRepo: () => ipcRenderer.invoke('cruise:pickRepo'),
+    onEvent: (callback: (event: any) => void) => {
+      const handler = (_: any, event: any) => callback(event);
+      ipcRenderer.on('cruise:event', handler);
+      return () => ipcRenderer.removeListener('cruise:event', handler);
+    },
+    onAttention: (callback: (signal: any) => void) => {
+      const handler = (_: any, signal: any) => callback(signal);
+      ipcRenderer.on('cruise:attention', handler);
+      return () => ipcRenderer.removeListener('cruise:attention', handler);
+    },
+    onAttentionCleared: (callback: (signal: any) => void) => {
+      const handler = (_: any, signal: any) => callback(signal);
+      ipcRenderer.on('cruise:attention-cleared', handler);
+      return () => ipcRenderer.removeListener('cruise:attention-cleared', handler);
+    },
+    onPhaseChanged: (callback: (signal: any) => void) => {
+      const handler = (_: any, signal: any) => callback(signal);
+      ipcRenderer.on('cruise:phase-changed', handler);
+      return () => ipcRenderer.removeListener('cruise:phase-changed', handler);
+    },
+    onRunStarted: (callback: (info: { runId: number }) => void) => {
+      const handler = (_: any, info: { runId: number }) => callback(info);
+      ipcRenderer.on('cruise:run-started', handler);
+      return () => ipcRenderer.removeListener('cruise:run-started', handler);
+    },
+    onRunFinished: (callback: (info: { runId: number; status: string }) => void) => {
+      const handler = (_: any, info: { runId: number; status: string }) => callback(info);
+      ipcRenderer.on('cruise:run-finished', handler);
+      return () => ipcRenderer.removeListener('cruise:run-finished', handler);
+    },
+  },
 });
 
 export interface ElectronAPI {
@@ -300,6 +346,32 @@ export interface ElectronAPI {
   onNewTabFromCLI: (callback: (info: { tabId: string; label: string }) => void) => () => void;
   onTabsRequest: (callback: (requestId: string) => void) => () => void;
   sendTabsResponse: (requestId: string, tabs: any[]) => void;
+
+  // Cruise Control
+  cruise: {
+    listRuns: () => Promise<any[]>;
+    getRun: (runId: number) => Promise<{ run: any; agents: any[]; events: any[]; artifacts: { runDirExists: boolean; files: string[] } } | null>;
+    start: (config: {
+      targetRepo: string;
+      agents?: Array<{ role: 'prd-refiner' | 'builder' | 'reviewer'; programId: string; label?: string }>;
+      idleThresholdMs?: number;
+      autoApprovePRD?: boolean;
+      maxReviewCycles?: number;
+    }) => Promise<{ runId: number }>;
+    pause: (runId: number) => Promise<{ ok: boolean }>;
+    resume: (runId: number) => Promise<{ ok: boolean }>;
+    stop: (runId: number) => Promise<{ ok: boolean }>;
+    delete: (runId: number) => Promise<{ ok: boolean }>;
+    approvePRD: (runId: number, editedContent?: string) => Promise<{ ok: boolean }>;
+    submitReviewDecision: (runId: number, decision: 'accept' | 'request-changes') => Promise<{ ok: boolean }>;
+    pickRepo: () => Promise<{ path: string | null }>;
+    onEvent: (callback: (event: any) => void) => () => void;
+    onAttention: (callback: (signal: { runId: number; agentId: number; tabId: string; reason: string; at: number }) => void) => () => void;
+    onAttentionCleared: (callback: (signal: { runId: number; agentId: number; tabId: string; at: number }) => void) => () => void;
+    onPhaseChanged: (callback: (signal: { runId: number; from: string; to: string; at: number }) => void) => () => void;
+    onRunStarted: (callback: (info: { runId: number }) => void) => () => void;
+    onRunFinished: (callback: (info: { runId: number; status: string }) => void) => () => void;
+  };
 }
 
 declare global {

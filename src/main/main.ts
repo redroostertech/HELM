@@ -40,6 +40,8 @@ import { LicenseManager } from './licensing';
 import { MobileAccessServer } from './mobile-server';
 import { HelmIPCServer, PendingTabContext, TabInfo } from './helm-ipc-server';
 import { installCLI } from './cli-install';
+import { CruiseOrchestrator } from './cruise/orchestrator';
+import type { CruiseRunConfig } from './database';
 
 // Register custom protocol for deep linking (helm://)
 if (process.defaultApp) {
@@ -57,6 +59,7 @@ let aiService: AIService | null = null;
 let licenseManager: LicenseManager | null = null;
 let mobileServer: MobileAccessServer | null = null;
 let helmIPCServer: HelmIPCServer | null = null;
+let cruiseOrchestrator: CruiseOrchestrator | null = null;
 let lastReportedTabs: TabInfo[] = [];
 // Pending tab-list requests keyed by requestId, awaiting renderer response
 const pendingTabRequests: Map<string, (tabs: TabInfo[]) => void> = new Map();
@@ -192,8 +195,63 @@ function createWindow() {
       }
     },
     getVersionInfo: () => readVersionInfo(),
+    cruise: {
+      start: async (config: any) => {
+        if (!cruiseOrchestrator) throw new Error('cruise orchestrator not initialized');
+        return cruiseOrchestrator.start(config);
+      },
+      status: async (runId: number | null) => {
+        if (!cruiseOrchestrator) return { run: null };
+        if (runId == null) {
+          const list = await cruiseOrchestrator.listRuns();
+          const active = list.find(r => r.status === 'running' || r.status === 'paused');
+          if (!active) return { run: null };
+          runId = active.id;
+        }
+        const result = await cruiseOrchestrator.getRun(runId);
+        return result || { run: null };
+      },
+      list: async () => {
+        if (!cruiseOrchestrator) return [];
+        return cruiseOrchestrator.listRuns();
+      },
+      pause: async (runId: number) => {
+        if (!cruiseOrchestrator) throw new Error('cruise orchestrator not initialized');
+        await cruiseOrchestrator.pause(runId);
+      },
+      resume: async (runId: number) => {
+        if (!cruiseOrchestrator) throw new Error('cruise orchestrator not initialized');
+        await cruiseOrchestrator.resume(runId);
+      },
+      stop: async (runId: number) => {
+        if (!cruiseOrchestrator) throw new Error('cruise orchestrator not initialized');
+        await cruiseOrchestrator.stop(runId);
+      },
+      approvePRD: async (runId: number) => {
+        if (!cruiseOrchestrator) throw new Error('cruise orchestrator not initialized');
+        await cruiseOrchestrator.approvePRD(runId);
+      },
+    },
   });
   helmIPCServer.start();
+
+  // Cruise Control orchestrator — spawns and drives multi-agent runs
+  cruiseOrchestrator = new CruiseOrchestrator(db, ptyManager, {
+    spawnTab: (label: string, ctx: PendingTabContext) => {
+      const tabId = `cruise-tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      ptyManager?.setPendingContext(tabId, ctx);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('helm:new-tab', { tabId, label });
+      }
+      return tabId;
+    },
+    broadcast: (channel: string, payload: any) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, payload);
+      }
+    },
+  });
+  cruiseOrchestrator.attach();
 
   // Build an application menu with an "Install CLI…" item
   buildApplicationMenu();
@@ -789,6 +847,69 @@ function setupIPCHandlers() {
     // Keep the cache warm for fallback use
     lastReportedTabs = parsed;
     resolver(parsed);
+  });
+
+  // ── Cruise Control handlers ────────────────────────────────────
+
+  ipcMain.handle('cruise:listRuns', async () => {
+    if (!cruiseOrchestrator) return [];
+    return cruiseOrchestrator.listRuns();
+  });
+
+  ipcMain.handle('cruise:getRun', async (_, runId: number) => {
+    if (!cruiseOrchestrator) return null;
+    return cruiseOrchestrator.getRun(runId);
+  });
+
+  ipcMain.handle('cruise:start', async (_, config: CruiseRunConfig) => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    return cruiseOrchestrator.start(config);
+  });
+
+  ipcMain.handle('cruise:pause', async (_, runId: number) => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.pause(runId);
+    return { ok: true };
+  });
+
+  ipcMain.handle('cruise:resume', async (_, runId: number) => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.resume(runId);
+    return { ok: true };
+  });
+
+  ipcMain.handle('cruise:stop', async (_, runId: number) => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.stop(runId);
+    return { ok: true };
+  });
+
+  ipcMain.handle('cruise:delete', async (_, runId: number) => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.delete(runId);
+    return { ok: true };
+  });
+
+  ipcMain.handle('cruise:approvePRD', async (_, runId: number, editedContent?: string) => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.approvePRD(runId, editedContent);
+    return { ok: true };
+  });
+
+  ipcMain.handle('cruise:submitReviewDecision', async (_, runId: number, decision: 'accept' | 'request-changes') => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.submitReviewDecision(runId, decision);
+    return { ok: true };
+  });
+
+  ipcMain.handle('cruise:pickRepo', async () => {
+    if (!mainWindow) return { path: null };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Select target repository (must contain AGENTS.md and PRD.md)',
+    });
+    if (result.canceled || result.filePaths.length === 0) return { path: null };
+    return { path: result.filePaths[0] };
   });
 
   // Renderer notifies us of tab list changes

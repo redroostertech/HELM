@@ -7,6 +7,8 @@ export interface TerminalTab {
   description: string;
   memoryMB: number;
   groupId?: string;
+  /** When set, tab pulses with this reason text as tooltip (Cruise Control) */
+  needsAttention?: string | null;
 }
 
 interface TabBarProps {
@@ -23,11 +25,13 @@ interface TabBarProps {
   onToggleSessions?: () => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  cruiseOpen?: boolean;
+  onToggleCruise?: () => void;
 }
 
 const MAX_TABS = 7;
 
-export default function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onNewTab, onRenameTab, onSettingsClick, chatOpen, onToggleChat, sessionsOpen, onToggleSessions, sidebarOpen, onToggleSidebar }: TabBarProps) {
+export default function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onNewTab, onRenameTab, onSettingsClick, chatOpen, onToggleChat, sessionsOpen, onToggleSessions, sidebarOpen, onToggleSidebar, cruiseOpen, onToggleCruise }: TabBarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
@@ -55,10 +59,11 @@ export default function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onN
         {tabs.map(tab => (
           <div
             key={tab.id}
-            className={`tab-item ${tab.id === activeTabId ? 'active' : ''}`}
+            className={`tab-item ${tab.id === activeTabId ? 'active' : ''} ${tab.needsAttention ? 'needs-attention' : ''}`}
             onClick={() => onSelectTab(tab.id)}
-            title={tab.description || tab.label}
+            title={tab.needsAttention || tab.description || tab.label}
           >
+            {tab.needsAttention && <span className="tab-attention-dot" aria-label="Needs your input" />}
             <div className="tab-content">
               {editingId === tab.id ? (
                 <input
@@ -141,6 +146,19 @@ export default function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onN
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="15" y1="3" x2="15" y2="21"/>
+          </svg>
+        </button>
+
+        <button
+          className={`tab-action-btn ${cruiseOpen ? 'panel-active' : ''}`}
+          onClick={onToggleCruise}
+          title="Cruise Control (agentic orchestration)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 12.5l5-2.5-3-5-5 2.5z"/>
+            <path d="M3 21l3-5"/>
+            <path d="M21 3l-5 3"/>
+            <circle cx="9" cy="14" r="4"/>
           </svg>
         </button>
 

@@ -29,6 +29,7 @@
 }
 
 .tab-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -39,6 +40,30 @@
   min-width: 0;
   max-width: 200px;
   flex-shrink: 0;
+}
+
+.tab-item.needs-attention {
+  background: rgba(245, 166, 35, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.55);
+  animation: tab-attention-pulse 1.6s ease-in-out infinite;
+}
+
+.tab-item.needs-attention.active {
+  background: rgba(245, 166, 35, 0.22);
+}
+
+@keyframes tab-attention-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(245, 166, 35, 0.55); }
+  50%      { box-shadow: inset 0 0 0 2px rgba(245, 166, 35, 0.9), 0 0 12px rgba(245, 166, 35, 0.35); }
+}
+
+.tab-attention-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f5a623;
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(245, 166, 35, 0.8);
 }
 
 .tab-item:hover {

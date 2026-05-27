@@ -417,7 +417,16 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
       }
     });
 
-    window.electronAPI.ptyStart(tabId);
+    window.electronAPI.ptyStart(tabId).then((result: any) => {
+      // If we're rejoining an existing PTY (isNew=false), the historical
+      // content is in the previous attachment's xterm scrollback, not ours.
+      // Drop the loading spinner immediately so the user can see the
+      // terminal and interact — pressing Ctrl+L or any key will make the
+      // TUI redraw.
+      if (result && result.isNew === false) {
+        setIsLoading(false);
+      }
+    }).catch(() => {});
 
     const handleResize = () => {
       if (isVisible) {
@@ -434,7 +443,10 @@ export default function TerminalPane({ tabId, theme = 'dark', isVisible, onAskCl
       window.removeEventListener('resize', handleResize);
       removeDataListener();
       terminal.dispose();
-      window.electronAPI.ptyKill(tabId);
+      // NOTE: do NOT ptyKill here. Component unmount can happen for reasons
+      // other than tab close (e.g. parent layout swap when Cruise toggles).
+      // The PTY's lifetime is owned by the tabs list in App.tsx — when a tab
+      // is removed, App.tsx is responsible for calling ptyKill.
       initializedRef.current = false;
     };
   }, [tabId, acceptSuggestion]);

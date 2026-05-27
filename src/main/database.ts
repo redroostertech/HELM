@@ -58,6 +58,116 @@ export interface CLIInput {
   timestamp: string;
 }
 
+// ── Cruise Control types ────────────────────────────────────────────
+
+export type CruisePhase =
+  | 'idle'
+  | 'prd-refine'
+  | 'prd-approve'
+  | 'plan-refine'
+  | 'build'
+  | 'review'
+  | 'review-feedback'
+  | 'done'
+  | 'paused'
+  | 'stopped'
+  | 'failed';
+
+export type CruiseRunStatus = 'running' | 'paused' | 'stopped' | 'done' | 'failed';
+
+/**
+ * Cruise agent role identifier.
+ *
+ * The three "core" roles are reserved; in addition, builder and reviewer
+ * roles get dynamic per-instance ids when a run plans for multiple
+ * builders/reviewers — e.g. "builder-backend", "reviewer-adversarial".
+ * Anything matching `/^(builder|reviewer)-[a-z0-9-]+$/` is also valid.
+ */
+export type CruiseAgentRole = string;
+
+export type CruiseAgentStatus =
+  | 'pending'
+  | 'spawning'
+  | 'active'
+  | 'idle'
+  | 'needs-input'
+  | 'completed'
+  | 'killed'
+  | 'failed';
+
+export interface CruiseRunConfig {
+  /** Path to the target repo containing AGENTS.md + PRD.md */
+  targetRepo: string;
+  /** Agent role → CLI program id mapping. Default: prd-refiner/reviewer = claude-code, builder = codex */
+  agents: Array<{ role: CruiseAgentRole; programId: string; label?: string }>;
+  /** Threshold for "blocked on input" detection */
+  idleThresholdMs?: number;
+  /** Auto-approve PRD without human gate (for testing) */
+  autoApprovePRD?: boolean;
+  /** Max review cycles before forcing done */
+  maxReviewCycles?: number;
+}
+
+export interface CruiseRun {
+  id: number;
+  target_repo: string;
+  status: CruiseRunStatus;
+  current_phase: CruisePhase;
+  review_cycle: number;
+  config: CruiseRunConfig;
+  started_at: string;
+  ended_at: string | null;
+  paused_at: string | null;
+}
+
+export interface CruiseAgent {
+  id: number;
+  run_id: number;
+  role: CruiseAgentRole;
+  program_id: string;
+  tab_id: string | null;
+  cli_session_id: number | null;
+  status: CruiseAgentStatus;
+  label: string | null;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export interface CruiseEvent {
+  id: number;
+  run_id: number;
+  agent_id: number | null;
+  type: string;
+  phase: CruisePhase;
+  payload: any;
+  ts: string;
+}
+
+export interface CruiseCheckpoint {
+  id: number;
+  run_id: number;
+  phase: CruisePhase;
+  review_cycle: number;
+  artifacts_snapshot: any;
+  created_at: string;
+}
+
+export type CruiseTaskSeverity = 'low' | 'medium' | 'high' | 'critical' | 'info';
+export type CruiseTaskStatus   = 'open' | 'in_progress' | 'resolved' | 'dropped';
+
+export interface CruiseTask {
+  id: number;
+  run_id: number;
+  created_by_agent_id: number | null;
+  assigned_to_role: string;
+  severity: CruiseTaskSeverity;
+  status: CruiseTaskStatus;
+  body: string;
+  related: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
 export class DatabaseManager {
   private pool: Pool;
 
@@ -155,6 +265,70 @@ export class DatabaseManager {
         CREATE INDEX IF NOT EXISTS idx_explanations_command ON explanations(command_id);
         CREATE INDEX IF NOT EXISTS idx_cli_sessions_session ON cli_sessions(session_id);
         CREATE INDEX IF NOT EXISTS idx_cli_inputs_cli_session ON cli_inputs(cli_session_id);
+
+        CREATE TABLE IF NOT EXISTS cruise_runs (
+          id SERIAL PRIMARY KEY,
+          target_repo TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'running',
+          current_phase TEXT NOT NULL DEFAULT 'idle',
+          review_cycle INTEGER NOT NULL DEFAULT 0,
+          config JSONB NOT NULL,
+          started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          ended_at TIMESTAMP,
+          paused_at TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS cruise_agents (
+          id SERIAL PRIMARY KEY,
+          run_id INTEGER NOT NULL REFERENCES cruise_runs(id) ON DELETE CASCADE,
+          role TEXT NOT NULL,
+          program_id TEXT NOT NULL,
+          tab_id TEXT,
+          cli_session_id INTEGER REFERENCES cli_sessions(id) ON DELETE SET NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          label TEXT,
+          started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          ended_at TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS cruise_events (
+          id SERIAL PRIMARY KEY,
+          run_id INTEGER NOT NULL REFERENCES cruise_runs(id) ON DELETE CASCADE,
+          agent_id INTEGER REFERENCES cruise_agents(id) ON DELETE SET NULL,
+          type TEXT NOT NULL,
+          phase TEXT NOT NULL,
+          payload JSONB,
+          ts TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS cruise_checkpoints (
+          id SERIAL PRIMARY KEY,
+          run_id INTEGER NOT NULL REFERENCES cruise_runs(id) ON DELETE CASCADE,
+          phase TEXT NOT NULL,
+          review_cycle INTEGER NOT NULL DEFAULT 0,
+          artifacts_snapshot JSONB,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS cruise_tasks (
+          id SERIAL PRIMARY KEY,
+          run_id INTEGER NOT NULL REFERENCES cruise_runs(id) ON DELETE CASCADE,
+          created_by_agent_id INTEGER REFERENCES cruise_agents(id) ON DELETE SET NULL,
+          assigned_to_role TEXT NOT NULL,
+          severity TEXT NOT NULL DEFAULT 'medium',
+          status TEXT NOT NULL DEFAULT 'open',
+          body TEXT NOT NULL,
+          related TEXT,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          resolved_at TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cruise_agents_run ON cruise_agents(run_id);
+        CREATE INDEX IF NOT EXISTS idx_cruise_events_run ON cruise_events(run_id);
+        CREATE INDEX IF NOT EXISTS idx_cruise_events_ts ON cruise_events(run_id, ts);
+        CREATE INDEX IF NOT EXISTS idx_cruise_checkpoints_run ON cruise_checkpoints(run_id);
+        CREATE INDEX IF NOT EXISTS idx_cruise_tasks_run ON cruise_tasks(run_id);
+        CREATE INDEX IF NOT EXISTS idx_cruise_tasks_assignee ON cruise_tasks(run_id, assigned_to_role, status);
       `);
 
       console.log('✅ PostgreSQL database initialized');
@@ -670,6 +844,204 @@ export class DatabaseManager {
     await this.pool.query('DELETE FROM commands');
     await this.pool.query('DELETE FROM lessons');
     await this.pool.query('DELETE FROM sessions');
+  }
+
+  // ── Cruise Control ──────────────────────────────────────────────────
+
+  async createCruiseRun(targetRepo: string, config: CruiseRunConfig): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO cruise_runs (target_repo, status, current_phase, config)
+       VALUES ($1, 'running', 'prd-refine', $2) RETURNING id`,
+      [targetRepo, JSON.stringify(config)]
+    );
+    return result.rows[0].id;
+  }
+
+  async updateCruiseRun(
+    runId: number,
+    fields: Partial<{
+      status: CruiseRunStatus;
+      current_phase: CruisePhase;
+      review_cycle: number;
+      ended_at: string | null;
+      paused_at: string | null;
+    }>
+  ): Promise<void> {
+    const sets: string[] = [];
+    const args: any[] = [];
+    let idx = 0;
+    for (const [k, v] of Object.entries(fields)) {
+      idx++;
+      sets.push(`${k} = $${idx}`);
+      args.push(v);
+    }
+    if (sets.length === 0) return;
+    idx++;
+    args.push(runId);
+    await this.pool.query(
+      `UPDATE cruise_runs SET ${sets.join(', ')} WHERE id = $${idx}`,
+      args
+    );
+  }
+
+  async getCruiseRun(runId: number): Promise<CruiseRun | null> {
+    const result = await this.pool.query(
+      'SELECT * FROM cruise_runs WHERE id = $1',
+      [runId]
+    );
+    return result.rows[0] || null;
+  }
+
+  async listCruiseRuns(limit: number = 50): Promise<CruiseRun[]> {
+    const result = await this.pool.query(
+      'SELECT * FROM cruise_runs ORDER BY started_at DESC LIMIT $1',
+      [limit]
+    );
+    return result.rows;
+  }
+
+  async listActiveCruiseRuns(): Promise<CruiseRun[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM cruise_runs WHERE status IN ('running', 'paused') ORDER BY started_at DESC`
+    );
+    return result.rows;
+  }
+
+  async deleteCruiseRun(runId: number): Promise<void> {
+    await this.pool.query('DELETE FROM cruise_runs WHERE id = $1', [runId]);
+  }
+
+  async createCruiseAgent(
+    runId: number,
+    role: CruiseAgentRole,
+    programId: string,
+    label: string | null
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO cruise_agents (run_id, role, program_id, label, status)
+       VALUES ($1, $2, $3, $4, 'pending') RETURNING id`,
+      [runId, role, programId, label]
+    );
+    return result.rows[0].id;
+  }
+
+  async updateCruiseAgent(
+    agentId: number,
+    fields: Partial<{
+      tab_id: string | null;
+      cli_session_id: number | null;
+      status: CruiseAgentStatus;
+      ended_at: string | null;
+    }>
+  ): Promise<void> {
+    const sets: string[] = [];
+    const args: any[] = [];
+    let idx = 0;
+    for (const [k, v] of Object.entries(fields)) {
+      idx++;
+      sets.push(`${k} = $${idx}`);
+      args.push(v);
+    }
+    if (sets.length === 0) return;
+    idx++;
+    args.push(agentId);
+    await this.pool.query(
+      `UPDATE cruise_agents SET ${sets.join(', ')} WHERE id = $${idx}`,
+      args
+    );
+  }
+
+  async getCruiseAgents(runId: number): Promise<CruiseAgent[]> {
+    const result = await this.pool.query(
+      'SELECT * FROM cruise_agents WHERE run_id = $1 ORDER BY id ASC',
+      [runId]
+    );
+    return result.rows;
+  }
+
+  async appendCruiseEvent(
+    runId: number,
+    agentId: number | null,
+    type: string,
+    phase: CruisePhase,
+    payload: any
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO cruise_events (run_id, agent_id, type, phase, payload)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [runId, agentId, type, phase, payload ? JSON.stringify(payload) : null]
+    );
+    return result.rows[0].id;
+  }
+
+  async getCruiseEvents(runId: number, limit: number = 500): Promise<CruiseEvent[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM cruise_events WHERE run_id = $1 ORDER BY ts ASC, id ASC LIMIT $2`,
+      [runId, limit]
+    );
+    return result.rows;
+  }
+
+  async createCruiseCheckpoint(
+    runId: number,
+    phase: CruisePhase,
+    reviewCycle: number,
+    artifactsSnapshot: any
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO cruise_checkpoints (run_id, phase, review_cycle, artifacts_snapshot)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [runId, phase, reviewCycle, artifactsSnapshot ? JSON.stringify(artifactsSnapshot) : null]
+    );
+    return result.rows[0].id;
+  }
+
+  async createCruiseTask(
+    runId: number,
+    createdByAgentId: number | null,
+    assignedToRole: string,
+    severity: CruiseTaskSeverity,
+    body: string,
+    related: string | null,
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO cruise_tasks (run_id, created_by_agent_id, assigned_to_role, severity, body, related)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [runId, createdByAgentId, assignedToRole, severity, body, related]
+    );
+    return result.rows[0].id;
+  }
+
+  async updateCruiseTaskStatus(taskId: number, status: CruiseTaskStatus): Promise<void> {
+    const ts = status === 'resolved' ? new Date().toISOString() : null;
+    await this.pool.query(
+      `UPDATE cruise_tasks SET status = $2, resolved_at = $3 WHERE id = $1`,
+      [taskId, status, ts]
+    );
+  }
+
+  async getCruiseTasks(runId: number): Promise<CruiseTask[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM cruise_tasks WHERE run_id = $1 ORDER BY created_at ASC`,
+      [runId]
+    );
+    return result.rows;
+  }
+
+  async getOpenCruiseTasksFor(runId: number, role: string): Promise<CruiseTask[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM cruise_tasks WHERE run_id = $1 AND assigned_to_role = $2 AND status IN ('open', 'in_progress') ORDER BY created_at ASC`,
+      [runId, role]
+    );
+    return result.rows;
+  }
+
+  async getLatestCruiseCheckpoint(runId: number): Promise<CruiseCheckpoint | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM cruise_checkpoints WHERE run_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [runId]
+    );
+    return result.rows[0] || null;
   }
 
   async close(): Promise<void> {

@@ -10,6 +10,7 @@ import ConfirmModal from './components/ConfirmModal';
 import ChatPane from './components/ChatPane';
 import SessionsPane from './components/SessionsPane';
 import SessionSearch from './components/SessionSearch';
+import CruisePanel from './components/CruisePanel';
 
 const DEFAULT_SETTINGS = {
   theme: 'dark' as const,
@@ -85,6 +86,8 @@ function App() {
   }>({ isAuthenticated: false, email: null, userName: null, tier: 'free' });
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchFeatureEnabled, setSearchFeatureEnabled] = useState(false);
+  const [cruiseOpen, setCruiseOpen] = useState(false);
+  const [cruiseAttention, setCruiseAttention] = useState<Record<string, string | null>>({});
 
   // AI features require authentication
   const isAuthenticated = authState.isAuthenticated;
@@ -105,10 +108,26 @@ function App() {
     })));
   }, [tabs, activeTabId]);
 
-  // Refit terminal when panels toggle
+  // Apply Cruise attention state onto tabs (drives the pulse + dot in TabBar).
+  // Clear attention for a tab the moment it becomes active.
+  useEffect(() => {
+    setTabs(prev => prev.map(t => ({
+      ...t,
+      needsAttention: t.id === activeTabId ? null : (cruiseAttention[t.id] || null),
+    })));
+  }, [cruiseAttention, activeTabId]);
+
+  // Auto-open Cruise panel when a run starts (e.g. from `helm cruise` CLI)
+  useEffect(() => {
+    if (!window.electronAPI.cruise) return;
+    const cleanup = window.electronAPI.cruise.onRunStarted(() => setCruiseOpen(true));
+    return cleanup;
+  }, []);
+
+  // Refit terminal when panels toggle (including Cruise full-screen)
   useEffect(() => {
     setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
-  }, [chatOpen, sidebarOpen, sessionsOpen]);
+  }, [chatOpen, sidebarOpen, sessionsOpen, cruiseOpen]);
 
   useEffect(() => {
     window.electronAPI.settingsLoad().then((saved: any) => {
@@ -286,6 +305,10 @@ function App() {
     const idx = tabs.findIndex(t => t.id === tabId);
     setTabs(prev => prev.filter(t => t.id !== tabId));
 
+    // Now that the tab is removed from state, kill its PTY. (TerminalPane
+    // no longer kills on unmount — App.tsx owns the PTY lifecycle.)
+    try { window.electronAPI.ptyKill(tabId); } catch {}
+
     if (activeTabId === tabId) {
       const newIdx = Math.min(idx, tabs.length - 2);
       const remaining = tabs.filter(t => t.id !== tabId);
@@ -330,16 +353,30 @@ function App() {
         onToggleSessions={() => setSessionsOpen(!sessionsOpen)}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        cruiseOpen={cruiseOpen}
+        onToggleCruise={() => setCruiseOpen(!cruiseOpen)}
       />
 
-      {/* Address bar */}
-      <AddressBar
-        currentPath={currentPath}
-        onNavigate={handleNavigate}
-      />
+      {/* Address bar — hidden but kept mounted when Cruise is full-screen */}
+      <div style={{ display: cruiseOpen ? 'none' : 'block' }}>
+        <AddressBar
+          currentPath={currentPath}
+          onNavigate={handleNavigate}
+        />
+      </div>
 
-      {/* Main content */}
-      <div className="main-content">
+      {/* Cruise Control full-screen — overlays main-content when active.
+          We keep main-content mounted (display:none) so its TerminalPanes
+          stay alive and PTYs aren't killed by unmount. */}
+      {cruiseOpen && (
+        <CruisePanel
+          theme={settings.theme}
+          onAttentionChange={setCruiseAttention}
+        />
+      )}
+
+      {/* Main content (always mounted; hidden when Cruise is open) */}
+      <div className="main-content" style={{ display: cruiseOpen ? 'none' : 'flex' }}>
         {/* Chat pane (left side) — hidden when not authenticated */}
         <ChatPane
           isOpen={chatOpen}
@@ -354,7 +391,7 @@ function App() {
               key={tab.id}
               tabId={tab.id}
               theme={settings.theme}
-              isVisible={tab.id === activeTabId}
+              isVisible={!cruiseOpen && tab.id === activeTabId}
               onAskClaude={handleAsk}
             />
           ))}

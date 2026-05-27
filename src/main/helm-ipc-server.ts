@@ -41,6 +41,16 @@ export interface HelmIPCServerHooks {
   notifyRendererNewTab: (tabId: string, label: string) => void;
   /** Return version info — the running app's version and the shim version it ships */
   getVersionInfo: () => { appVersion: string; shimVersion: string };
+  /** Cruise Control operations (optional — orchestrator is wired separately) */
+  cruise?: {
+    start: (config: any) => Promise<{ runId: number }>;
+    status: (runId: number | null) => Promise<{ run: any; agents: any[]; events: any[] } | { run: null }>;
+    list: () => Promise<any[]>;
+    pause: (runId: number) => Promise<void>;
+    resume: (runId: number) => Promise<void>;
+    stop: (runId: number) => Promise<void>;
+    approvePRD: (runId: number) => Promise<void>;
+  };
 }
 
 const APP_SUPPORT = path.join(os.homedir(), 'Library', 'Application Support', 'Helm');
@@ -148,6 +158,54 @@ export class HelmIPCServer {
       case 'version': {
         const info = this.hooks.getVersionInfo();
         return { ok: true, ...info };
+      }
+
+      case 'cruise-start': {
+        if (!this.hooks.cruise) return { ok: false, error: 'cruise not available' };
+        try {
+          const { runId } = await this.hooks.cruise.start(req.config || {});
+          this.hooks.focusWindow();
+          return { ok: true, runId };
+        } catch (err: any) {
+          return { ok: false, error: err?.message || String(err) };
+        }
+      }
+
+      case 'cruise-status': {
+        if (!this.hooks.cruise) return { ok: false, error: 'cruise not available' };
+        try {
+          const result = await this.hooks.cruise.status(req.runId ?? null);
+          return { ok: true, ...result };
+        } catch (err: any) {
+          return { ok: false, error: err?.message || String(err) };
+        }
+      }
+
+      case 'cruise-list': {
+        if (!this.hooks.cruise) return { ok: false, error: 'cruise not available' };
+        try {
+          const runs = await this.hooks.cruise.list();
+          return { ok: true, runs };
+        } catch (err: any) {
+          return { ok: false, error: err?.message || String(err) };
+        }
+      }
+
+      case 'cruise-pause':
+      case 'cruise-resume':
+      case 'cruise-stop':
+      case 'cruise-approve-prd': {
+        if (!this.hooks.cruise) return { ok: false, error: 'cruise not available' };
+        if (typeof req.runId !== 'number') return { ok: false, error: 'runId required' };
+        try {
+          if (req.op === 'cruise-pause') await this.hooks.cruise.pause(req.runId);
+          else if (req.op === 'cruise-resume') await this.hooks.cruise.resume(req.runId);
+          else if (req.op === 'cruise-stop') await this.hooks.cruise.stop(req.runId);
+          else await this.hooks.cruise.approvePRD(req.runId);
+          return { ok: true };
+        } catch (err: any) {
+          return { ok: false, error: err?.message || String(err) };
+        }
       }
 
       default:

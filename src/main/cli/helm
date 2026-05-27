@@ -436,6 +436,169 @@ async function cmdDoctor() {
   if (problems > 0) process.exit(1);
 }
 
+// ── cruise control ───────────────────────────────────────────────
+
+async function cmdCruise(args) {
+  const sub = args[0];
+  if (!sub || sub === 'help' || sub === '--help' || sub === '-h') {
+    printCruiseHelp();
+    return;
+  }
+  switch (sub) {
+    case 'start': return await cruiseStart(args.slice(1));
+    case 'status': return await cruiseStatus(args.slice(1));
+    case 'list': return await cruiseList();
+    case 'pause': return await cruiseSimple('cruise-pause', args.slice(1));
+    case 'resume': return await cruiseSimple('cruise-resume', args.slice(1));
+    case 'stop': return await cruiseSimple('cruise-stop', args.slice(1));
+    case 'approve': return await cruiseSimple('cruise-approve-prd', args.slice(1));
+    default:
+      console.error(`Unknown cruise subcommand: ${sub}`);
+      printCruiseHelp();
+      process.exit(1);
+  }
+}
+
+function printCruiseHelp() {
+  console.log(`helm cruise — agentic orchestration
+
+USAGE
+  helm cruise <subcommand> [args]
+
+SUBCOMMANDS
+  start <repo-path> [--auto-approve] [--max-cycles N]
+      Start a new Cruise Control run on the given repository. The repo
+      must contain AGENTS.md and PRD.md in its root. Spawns 3 agent
+      tabs (PRD-refiner, Builder, Reviewer) and drives them through
+      the orchestration phases.
+
+      Examples:
+        helm cruise start ~/code/my-project
+        helm cruise start . --max-cycles 5
+
+  status [run-id]
+      Show the status of a Cruise run. With no id, shows the most
+      recent active run.
+
+  list
+      List all Cruise runs.
+
+  pause <run-id>
+      Pause the orchestrator (CLIs stay alive).
+
+  resume <run-id>
+      Resume from pause OR from a stopped checkpoint.
+
+  stop <run-id>
+      Kill agent CLIs and save a checkpoint (resumable later).
+
+  approve <run-id>
+      Approve the PRD draft as-is (no edits) and move to build phase.
+`);
+}
+
+async function cruiseStart(args) {
+  if (!args[0]) {
+    console.error('usage: helm cruise start <repo-path> [--auto-approve] [--max-cycles N]');
+    process.exit(1);
+  }
+  const targetRepo = path.resolve(args[0]);
+  if (!fs.existsSync(targetRepo)) {
+    console.error(`repo path does not exist: ${targetRepo}`);
+    process.exit(1);
+  }
+  if (!fs.existsSync(path.join(targetRepo, 'AGENTS.md'))) {
+    console.error(`AGENTS.md not found in ${targetRepo}`);
+    process.exit(1);
+  }
+  if (!fs.existsSync(path.join(targetRepo, 'PRD.md'))) {
+    console.error(`PRD.md not found in ${targetRepo}`);
+    process.exit(1);
+  }
+  let autoApprove = false;
+  let maxCycles = 3;
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === '--auto-approve') autoApprove = true;
+    else if (args[i] === '--max-cycles' && i + 1 < args.length) {
+      maxCycles = parseInt(args[++i], 10) || 3;
+    }
+  }
+  const resp = await sendRequest({
+    op: 'cruise-start',
+    config: { targetRepo, autoApprovePRD: autoApprove, maxReviewCycles: maxCycles },
+  });
+  if (resp.ok) {
+    console.log(`Cruise run #${resp.runId} started on ${targetRepo}`);
+    console.log('Open HELM to watch progress; agents will spawn shortly.');
+  } else {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+}
+
+async function cruiseStatus(args) {
+  const runId = args[0] ? parseInt(args[0], 10) : null;
+  const resp = await sendRequest({ op: 'cruise-status', runId });
+  if (!resp.ok) {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+  if (!resp.run) {
+    console.log('(no run)');
+    return;
+  }
+  const r = resp.run;
+  console.log(`#${r.id}  ${r.target_repo}`);
+  console.log(`  status: ${r.status}`);
+  console.log(`  phase:  ${r.current_phase}${r.review_cycle ? ` (review cycle ${r.review_cycle})` : ''}`);
+  console.log(`  agents: ${resp.agents.length}`);
+  for (const a of resp.agents) {
+    console.log(`    - ${a.label || a.role}  [${a.status}]  ${a.program_id}${a.tab_id ? '  tab=' + a.tab_id : ''}`);
+  }
+  if (resp.events && resp.events.length) {
+    console.log(`  recent events:`);
+    for (const e of resp.events.slice(-5)) {
+      console.log(`    ${e.ts.slice(11, 19)}  ${e.type}  ${e.phase}`);
+    }
+  }
+}
+
+async function cruiseList() {
+  const resp = await sendRequest({ op: 'cruise-list' });
+  if (!resp.ok) {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+  const runs = resp.runs || [];
+  if (runs.length === 0) {
+    console.log('(no runs)');
+    return;
+  }
+  for (const r of runs) {
+    const started = (r.started_at || '').slice(0, 19).replace('T', ' ');
+    console.log(`#${String(r.id).padEnd(4)}  ${started}  ${r.status.padEnd(10)}  ${r.current_phase.padEnd(16)}  ${r.target_repo}`);
+  }
+}
+
+async function cruiseSimple(op, args) {
+  if (!args[0]) {
+    console.error(`usage: helm cruise <op> <run-id>`);
+    process.exit(1);
+  }
+  const runId = parseInt(args[0], 10);
+  if (isNaN(runId)) {
+    console.error(`invalid run id: ${args[0]}`);
+    process.exit(1);
+  }
+  const resp = await sendRequest({ op, runId });
+  if (resp.ok) {
+    console.log(`ok`);
+  } else {
+    console.error('Failed:', resp.error);
+    process.exit(1);
+  }
+}
+
 function cmdSnapshots() {
   ensureDir(SNAPSHOT_DIR);
   const files = fs.readdirSync(SNAPSHOT_DIR).filter(f => f.endsWith('.json'));
@@ -513,6 +676,16 @@ COMMANDS
       List saved snapshots with name, creation date, and cwd.
       Snapshots are sorted newest-first.
 
+  cruise <subcommand>
+      Agentic orchestration: spin up Claude + Codex agents to refine
+      a PRD and build a project end-to-end. Run "helm cruise help"
+      for subcommands.
+
+      Examples:
+        helm cruise start ~/code/my-project
+        helm cruise status
+        helm cruise list
+
   version, --version, -v
       Show the shim version and the running app's version. Warns if
       they diverge (meaning your symlink needs refreshing).
@@ -584,6 +757,7 @@ async function main() {
       case 'run':      return await cmdRun(rest);
       case 'list':     return await cmdList();
       case 'snapshots': return cmdSnapshots();
+      case 'cruise':   return await cmdCruise(rest);
       case 'version': return await cmdVersion();
       case 'doctor':  return await cmdDoctor();
       default:
