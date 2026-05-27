@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import './AppMonitor.css';
 
-type EventKind = 'console' | 'error' | 'navigation' | 'load' | 'crash' | 'network';
+type EventKind = 'console' | 'error' | 'navigation' | 'load' | 'crash' | 'network' | 'server';
 type Severity = 'verbose' | 'info' | 'warning' | 'error';
+type TargetKind = 'url' | 'directory';
 
 interface AppMonitorEvent {
   id: string;
@@ -70,6 +71,19 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState('https://example.com');
   const [viewport, setViewport] = useState(VIEWPORT_PRESETS[0]);
+
+  // Directory-mode state
+  const [targetKind, setTargetKind] = useState<TargetKind>('url');
+  const [dirPath, setDirPath] = useState('');
+  const [dirInspect, setDirInspect] = useState<{
+    ok: boolean;
+    error?: string;
+    kind?: 'node' | 'python' | 'static' | 'unknown';
+    scripts?: Array<{ name: string; command: string }>;
+    suggestions?: string[];
+  } | null>(null);
+  const [launchCommand, setLaunchCommand] = useState('');
+  const [launching, setLaunching] = useState(false);
   const [cruiseRuns, setCruiseRuns] = useState<Array<{ id: number; target_repo: string; status: string }>>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [runRoles, setRunRoles] = useState<string[]>([]);
@@ -123,6 +137,31 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [activeSession?.events.length]);
+
+  // Listen for child-process server events (directory mode) and route them
+  // into the matching session's feed.
+  useEffect(() => {
+    if (!window.electronAPI.appMonitor?.onServerEvent) return;
+    const cleanup = window.electronAPI.appMonitor.onServerEvent((sessionId, event) => {
+      setSessions(prev => prev.map(s => {
+        if (s.id !== sessionId) return s;
+        const nextEvents = [...s.events, event];
+        if (nextEvents.length > EVENT_CAP) nextEvents.splice(0, nextEvents.length - EVENT_CAP);
+        return { ...s, events: nextEvents };
+      }));
+    });
+    return cleanup;
+  }, []);
+
+  // Listen for URL auto-detection (first localhost URL printed by a child
+  // process). Update the session's URL so the webview loads it.
+  useEffect(() => {
+    if (!window.electronAPI.appMonitor?.onUrlDetected) return;
+    const cleanup = window.electronAPI.appMonitor.onUrlDetected((sessionId, url) => {
+      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, url } : s));
+    });
+    return cleanup;
+  }, []);
 
   const appendEvent = useCallback((sessionId: string, event: AppMonitorEvent) => {
     setSessions(prev => prev.map(s => {
@@ -219,26 +258,91 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
     };
   }, [activeSession?.id, appendEvent]);
 
-  const handleLaunch = () => {
-    let url = urlInput.trim();
-    if (!url) return;
-    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  const handlePickDirectory = async () => {
+    const picked = await window.electronAPI.appMonitor?.pickDirectory();
+    if (!picked) return;
+    setDirPath(picked);
+    setDirInspect(null);
+    setLaunchCommand('');
+    try {
+      const result = await window.electronAPI.appMonitor.inspectDirectory(picked);
+      setDirInspect(result);
+      // Pre-fill with the highest-priority script if available
+      const firstScript = result?.scripts?.[0]?.command;
+      const firstSuggestion = result?.suggestions?.[0];
+      setLaunchCommand(firstScript || firstSuggestion || '');
+    } catch (err: any) {
+      setDirInspect({ ok: false, error: err?.message || 'inspect failed' });
+    }
+  };
+
+  const handleLaunch = async () => {
+    if (targetKind === 'url') {
+      let url = urlInput.trim();
+      if (!url) return;
+      if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+      const session: AppMonitorSession = {
+        id: newSessionId(),
+        url,
+        startedAt: Date.now(),
+        endedAt: null,
+        events: [{
+          id: newEventId(),
+          ts: Date.now(),
+          kind: 'navigation',
+          severity: 'info',
+          message: `Session started → ${url}`,
+        }],
+      };
+      setSessions(prev => [session, ...prev]);
+      setActiveSessionId(session.id);
+      window.electronAPI.appMonitor?.recordSession(session).catch(() => {});
+      return;
+    }
+
+    // Directory mode: spawn child, wait for URL detection to update src.
+    if (!dirPath || !launchCommand.trim()) return;
+    setLaunching(true);
+    const sessionId = newSessionId();
     const session: AppMonitorSession = {
-      id: newSessionId(),
-      url,
+      id: sessionId,
+      url: 'about:blank',
       startedAt: Date.now(),
       endedAt: null,
       events: [{
         id: newEventId(),
         ts: Date.now(),
-        kind: 'navigation',
+        kind: 'server',
         severity: 'info',
-        message: `Session started → ${url}`,
+        message: `Directory session started → ${dirPath}\n$ ${launchCommand}`,
+        meta: { cwd: dirPath, command: launchCommand },
       }],
     };
     setSessions(prev => [session, ...prev]);
-    setActiveSessionId(session.id);
-    window.electronAPI.appMonitor?.recordSession(session).catch(() => {});
+    setActiveSessionId(sessionId);
+    try {
+      await window.electronAPI.appMonitor.recordSession(session);
+      const result = await window.electronAPI.appMonitor.launchChild({
+        sessionId, cwd: dirPath, command: launchCommand.trim(),
+      });
+      if (!result.ok) {
+        setSessions(prev => prev.map(s => s.id === sessionId
+          ? { ...s, events: [...s.events, {
+              id: newEventId(), ts: Date.now(), kind: 'error', severity: 'error',
+              message: `Launch failed: ${result.error}`,
+            }] }
+          : s));
+      }
+    } catch (err: any) {
+      setSessions(prev => prev.map(s => s.id === sessionId
+        ? { ...s, events: [...s.events, {
+            id: newEventId(), ts: Date.now(), kind: 'error', severity: 'error',
+            message: `Launch error: ${err?.message || String(err)}`,
+          }] }
+        : s));
+    } finally {
+      setLaunching(false);
+    }
   };
 
   const handleSelectSession = (id: string) => {
@@ -248,6 +352,8 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
   const handleStopSession = (id: string) => {
     setSessions(prev => prev.map(s => s.id === id && !s.endedAt ? { ...s, endedAt: Date.now() } : s));
     window.electronAPI.appMonitor?.endSession(id).catch(() => {});
+    // Best-effort kill of any associated child process (no-op for url sessions)
+    window.electronAPI.appMonitor?.killChild?.(id).catch(() => {});
   };
 
   const openForward = (evt: AppMonitorEvent) => {
@@ -312,14 +418,74 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
       <main className="am-main">
         {/* Launch form */}
         <div className="am-launch">
-          <input
-            className="am-url-input"
-            type="text"
-            value={urlInput}
-            onChange={e => setUrlInput(e.target.value)}
-            placeholder="https://example.com"
-            onKeyDown={e => { if (e.key === 'Enter') handleLaunch(); }}
-          />
+          <div className="am-target-toggle">
+            <button
+              className={targetKind === 'url' ? 'active' : ''}
+              onClick={() => setTargetKind('url')}
+            >URL</button>
+            <button
+              className={targetKind === 'directory' ? 'active' : ''}
+              onClick={() => setTargetKind('directory')}
+            >Directory</button>
+          </div>
+
+          {targetKind === 'url' ? (
+            <>
+              <input
+                className="am-url-input"
+                type="text"
+                value={urlInput}
+                onChange={e => setUrlInput(e.target.value)}
+                placeholder="https://example.com"
+                onKeyDown={e => { if (e.key === 'Enter') handleLaunch(); }}
+              />
+            </>
+          ) : (
+            <div className="am-dir-form">
+              <div className="am-dir-row">
+                <input
+                  className="am-url-input"
+                  type="text"
+                  value={dirPath}
+                  onChange={e => setDirPath(e.target.value)}
+                  placeholder="/path/to/project"
+                  readOnly={false}
+                />
+                <button className="am-launch-btn am-dir-pick" onClick={handlePickDirectory}>Browse…</button>
+              </div>
+              {dirInspect && dirInspect.ok && (
+                <div className="am-dir-row am-dir-cmd">
+                  {dirInspect.scripts && dirInspect.scripts.length > 0 && (
+                    <select
+                      className="am-viewport-select"
+                      value={launchCommand}
+                      onChange={e => setLaunchCommand(e.target.value)}
+                    >
+                      <option value="">(custom command)</option>
+                      {dirInspect.scripts.map(s => (
+                        <option key={s.name} value={s.command}>{s.name} — {s.command}</option>
+                      ))}
+                      {dirInspect.suggestions?.map(s => (
+                        <option key={'sug-' + s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  )}
+                  <input
+                    className="am-url-input"
+                    type="text"
+                    value={launchCommand}
+                    onChange={e => setLaunchCommand(e.target.value)}
+                    placeholder="npm run dev"
+                    onKeyDown={e => { if (e.key === 'Enter') handleLaunch(); }}
+                  />
+                </div>
+              )}
+              {dirInspect && !dirInspect.ok && (
+                <div className="am-dir-row am-dir-err">{dirInspect.error}</div>
+              )}
+            </div>
+          )}
+
           <select
             className="am-viewport-select"
             value={viewport.label}
@@ -332,7 +498,13 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
               <option key={v.label} value={v.label}>{v.label}</option>
             ))}
           </select>
-          <button className="am-launch-btn" onClick={handleLaunch}>Launch</button>
+          <button
+            className="am-launch-btn"
+            onClick={handleLaunch}
+            disabled={launching || (targetKind === 'directory' && (!dirPath || !launchCommand.trim()))}
+          >
+            {launching ? 'Launching…' : 'Launch'}
+          </button>
           {activeSession && !activeSession.endedAt && (
             <button className="am-stop-btn" onClick={() => handleStopSession(activeSession.id)}>
               Stop
@@ -343,9 +515,9 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
         {/* Webview + feed split */}
         <div className="am-split">
           <div className="am-viewport-wrap">
-            {activeSession ? (
+            {activeSession && activeSession.url && activeSession.url !== 'about:blank' ? (
               <webview
-                key={activeSession.id}
+                key={activeSession.id + '|' + activeSession.url}
                 ref={(el) => { webviewRef.current = el as unknown as HTMLElement; }}
                 src={activeSession.url}
                 style={{
@@ -358,9 +530,16 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
                 // @ts-expect-error — webview is an Electron-only element, not in React's JSX.IntrinsicElements
                 allowpopups="true"
               />
+            ) : activeSession ? (
+              <div className="am-viewport-placeholder">
+                Waiting for the dev server to print a URL…
+                <div className="am-viewport-hint">
+                  Watch the event feed for "Local: http://…" — the webview will load it automatically.
+                </div>
+              </div>
             ) : (
               <div className="am-viewport-placeholder">
-                Enter a URL above and click Launch to embed a target app here.
+                Enter a URL or pick a directory above, then click Launch to embed your target app here.
               </div>
             )}
           </div>
@@ -389,7 +568,7 @@ export default function AppMonitor({ theme }: AppMonitorProps) {
                 <div className="am-empty">No events yet.</div>
               )}
               {activeSession?.events.map(evt => (
-                <div key={evt.id} className={`am-event sev-${evt.severity}`}>
+                <div key={evt.id} className={`am-event sev-${evt.severity} kind-${evt.kind}`}>
                   <span className="am-event-ts">{formatTs(evt.ts)}</span>
                   <span
                     className="am-event-sev"

@@ -125,12 +125,92 @@
   background: #252526;
   border-bottom: 1px solid #333;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 [data-theme="light"] .am-launch {
   background: #f0f0f0;
   border-bottom-color: #ddd;
 }
+
+.am-target-toggle {
+  display: inline-flex;
+  background: #1e1e1e;
+  border: 1px solid #444;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+[data-theme="light"] .am-target-toggle {
+  background: #fff;
+  border-color: #ccc;
+}
+
+.am-target-toggle button {
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  color: #aaa;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.am-target-toggle button.active {
+  background: #0e639c;
+  color: #fff;
+}
+
+[data-theme="light"] .am-target-toggle button { color: #555; }
+
+.am-dir-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 280px;
+}
+
+.am-dir-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.am-dir-row .am-url-input { flex: 1; }
+
+.am-dir-cmd .am-viewport-select { min-width: 200px; }
+
+.am-dir-pick {
+  background: #3c3c3c;
+  padding: 6px 12px;
+}
+
+.am-dir-pick:hover { background: #4c4c4c; }
+
+.am-dir-err {
+  color: #e85a4f;
+  font-size: 11px;
+  background: rgba(232, 90, 79, 0.1);
+  border: 1px solid rgba(232, 90, 79, 0.3);
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+
+.am-viewport-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #888;
+}
+
+.am-launch-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.am-event.kind-server { background: rgba(74, 158, 255, 0.04); }
+.am-event.kind-server .am-event-msg { font-family: 'SF Mono', 'Monaco', monospace; font-size: 11px; white-space: pre-wrap; }
 
 .am-url-input {
   flex: 1;

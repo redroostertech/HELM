@@ -1,9 +1,14 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import { spawn, ChildProcess } from 'child_process';
 import type { CruiseOrchestrator } from '../cruise/orchestrator';
 import type {
   AppMonitorSession,
   AppMonitorEvent,
   ForwardToCruiseArgs,
+  DirectoryInspection,
+  LaunchChildArgs,
 } from './types';
 
 interface AppMonitorServiceOptions {
@@ -13,7 +18,17 @@ interface AppMonitorServiceOptions {
    * after this service and the getter resolves at call time.
    */
   getCruiseOrchestrator: () => CruiseOrchestrator | null;
+  /** Resolver for the renderer window — used to broadcast server-event + url-detected */
+  getMainWindow: () => BrowserWindow | null;
 }
+
+/** Strip ANSI/VT100 escape codes so URL detection works on colorized output. */
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
+}
+
+/** Match local dev-server URLs in stdout: localhost / 127.0.0.1 / 0.0.0.0 / host.docker.internal. */
+const URL_RE = /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal)(?::\d+)?(?:\/[^\s'"<>)\]]*)?)/i;
 
 /**
  * AppMonitor service. v0 stores sessions in-memory only — persistence
@@ -25,6 +40,10 @@ interface AppMonitorServiceOptions {
  */
 export class AppMonitorService {
   private sessions: Map<string, AppMonitorSession> = new Map();
+  /** Spawned dev-server processes, keyed by sessionId. */
+  private children: Map<string, ChildProcess> = new Map();
+  /** Sessions for which a URL was already auto-detected (avoid spamming). */
+  private urlDetected: Set<string> = new Set();
   constructor(private opts: AppMonitorServiceOptions) {}
 
   listSessions(): AppMonitorSession[] {
@@ -39,7 +58,6 @@ export class AppMonitorService {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     s.events.push(event);
-    // Cap at 500 to keep memory bounded (matches renderer cap).
     if (s.events.length > 500) s.events.splice(0, s.events.length - 500);
   }
 
@@ -47,6 +65,196 @@ export class AppMonitorService {
     const s = this.sessions.get(sessionId);
     if (!s) return;
     s.endedAt = Date.now();
+    // Tear down any associated child process so dev servers don't outlive
+    // the session that started them.
+    this.killChild(sessionId);
+  }
+
+  /**
+   * Open a directory picker and return the chosen path (or null on cancel).
+   */
+  async pickDirectory(): Promise<string | null> {
+    const win = this.opts.getMainWindow();
+    if (!win) return null;
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory'],
+      title: 'Select project directory to launch & monitor',
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  }
+
+  /**
+   * Inspect a directory for launchable scripts/manifests. Detects:
+   *   - package.json with scripts (Node projects — most common)
+   *   - pyproject.toml or manage.py (Python)
+   *   - bare index.html (static site)
+   */
+  async inspectDirectory(dir: string): Promise<DirectoryInspection> {
+    if (!dir || !fs.existsSync(dir)) return { ok: false, error: `directory not found: ${dir}` };
+    if (!fs.statSync(dir).isDirectory()) return { ok: false, error: `not a directory: ${dir}` };
+
+    const pkgPath = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+        const scriptMap: Record<string, string> = pkg.scripts || {};
+        const priority = ['dev', 'start', 'serve', 'preview', 'develop'];
+        const ordered: Array<{ name: string; command: string }> = [];
+        for (const name of priority) {
+          if (scriptMap[name]) ordered.push({ name, command: `npm run ${name}` });
+        }
+        for (const [name, command] of Object.entries(scriptMap)) {
+          if (priority.includes(name)) continue;
+          ordered.push({ name, command: `npm run ${name}` });
+        }
+        return { ok: true, kind: 'node', scripts: ordered, suggestions: [] };
+      } catch (e: unknown) {
+        return { ok: false, error: 'failed to parse package.json: ' + (e instanceof Error ? e.message : String(e)) };
+      }
+    }
+
+    if (fs.existsSync(path.join(dir, 'manage.py'))) {
+      return { ok: true, kind: 'python', scripts: [], suggestions: ['python manage.py runserver'] };
+    }
+    if (fs.existsSync(path.join(dir, 'pyproject.toml'))) {
+      return { ok: true, kind: 'python', scripts: [], suggestions: ['python -m http.server 8000', 'uvicorn main:app --reload'] };
+    }
+    if (fs.existsSync(path.join(dir, 'index.html'))) {
+      return { ok: true, kind: 'static', scripts: [], suggestions: ['python3 -m http.server 8000', 'npx http-server -p 8000'] };
+    }
+
+    return { ok: true, kind: 'unknown', scripts: [], suggestions: [] };
+  }
+
+  /**
+   * Spawn a child process for a directory-mode session. stdout/stderr lines
+   * are emitted as `server`-kind events. The first localhost URL detected in
+   * either stream triggers a `appMonitor:url-detected` broadcast so the
+   * renderer can navigate the webview automatically.
+   *
+   * We spawn through a shell to allow scripts like `npm run dev` to work, and
+   * mark detached: true + use `process.kill(-pid)` on cleanup so child trees
+   * (npm → node → vite) all die when the session ends.
+   */
+  async launchChild(args: LaunchChildArgs): Promise<{ ok: boolean; pid?: number; error?: string }> {
+    const { sessionId, cwd, command } = args;
+    if (!sessionId || !cwd || !command) return { ok: false, error: 'sessionId, cwd and command are required' };
+    if (this.children.has(sessionId)) return { ok: false, error: 'child already running for this session' };
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return { ok: false, error: `cwd does not exist: ${cwd}` };
+
+    const child = spawn(command, [], {
+      cwd,
+      shell: true,
+      detached: true,
+      env: { ...process.env, FORCE_COLOR: '1' },
+    });
+
+    if (!child.pid) {
+      return { ok: false, error: 'failed to spawn child process' };
+    }
+
+    this.children.set(sessionId, child);
+    this.urlDetected.delete(sessionId);
+
+    const emitServerLine = (line: string, severity: 'info' | 'warning' | 'error', stream: 'stdout' | 'stderr') => {
+      const clean = stripAnsi(line);
+      const win = this.opts.getMainWindow();
+      const event: AppMonitorEvent = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        ts: Date.now(),
+        kind: 'server',
+        severity,
+        message: clean.replace(/\s+$/, ''),
+        meta: { stream },
+      };
+      this.appendEvent(sessionId, event);
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('appMonitor:server-event', sessionId, event);
+      }
+
+      if (!this.urlDetected.has(sessionId)) {
+        const m = clean.match(URL_RE);
+        if (m) {
+          const url = m[1];
+          this.urlDetected.add(sessionId);
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('appMonitor:url-detected', sessionId, url);
+          }
+        }
+      }
+    };
+
+    let stdoutBuf = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdoutBuf += chunk.toString('utf-8');
+      let nl: number;
+      while ((nl = stdoutBuf.indexOf('\n')) !== -1) {
+        const line = stdoutBuf.slice(0, nl);
+        stdoutBuf = stdoutBuf.slice(nl + 1);
+        if (line.trim()) emitServerLine(line, 'info', 'stdout');
+      }
+    });
+
+    let stderrBuf = '';
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderrBuf += chunk.toString('utf-8');
+      let nl: number;
+      while ((nl = stderrBuf.indexOf('\n')) !== -1) {
+        const line = stderrBuf.slice(0, nl);
+        stderrBuf = stderrBuf.slice(nl + 1);
+        // Many dev tools (Vite, Next) print their "Local: …" banner to stdout
+        // and warnings/errors to stderr — but some print everything to stderr.
+        // Default to warning for stderr but URL detection still runs.
+        if (line.trim()) emitServerLine(line, 'warning', 'stderr');
+      }
+    });
+
+    child.on('exit', (code, signal) => {
+      const win = this.opts.getMainWindow();
+      const sev = code === 0 || code === null ? 'info' : 'error';
+      const msg = `Child process exited (code=${code ?? signal})`;
+      const event: AppMonitorEvent = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        ts: Date.now(),
+        kind: 'server',
+        severity: sev,
+        message: msg,
+        meta: { exitCode: code, signal },
+      };
+      this.appendEvent(sessionId, event);
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('appMonitor:server-event', sessionId, event);
+      }
+      this.children.delete(sessionId);
+    });
+
+    return { ok: true, pid: child.pid };
+  }
+
+  /** Kill the child process associated with a session (and its descendants). */
+  killChild(sessionId: string): { ok: boolean; error?: string } {
+    const child = this.children.get(sessionId);
+    if (!child) return { ok: true };
+    try {
+      // Negative PID with shell+detached kills the whole process group.
+      if (child.pid) process.kill(-child.pid, 'SIGTERM');
+    } catch {
+      try { child.kill('SIGTERM'); } catch {}
+    }
+    // Hard-kill after a grace period if the process is stubborn.
+    setTimeout(() => {
+      if (!this.children.has(sessionId)) return;
+      try { if (child.pid) process.kill(-child.pid, 'SIGKILL'); } catch {}
+      try { child.kill('SIGKILL'); } catch {}
+    }, 3000);
+    this.children.delete(sessionId);
+    return { ok: true };
+  }
+
+  /** Cleanup hook for app quit — kill every child we spawned. */
+  killAllChildren(): void {
+    for (const sessionId of Array.from(this.children.keys())) this.killChild(sessionId);
   }
 
   /**
@@ -112,4 +320,12 @@ export function registerAppMonitorIPC(service: AppMonitorService): void {
   ipcMain.handle('appMonitor:forwardToCruise', (_e, args: ForwardToCruiseArgs) => {
     return service.forwardToCruise(args);
   });
+
+  ipcMain.handle('appMonitor:pickDirectory', () => service.pickDirectory());
+
+  ipcMain.handle('appMonitor:inspectDirectory', (_e, dir: string) => service.inspectDirectory(dir));
+
+  ipcMain.handle('appMonitor:launchChild', (_e, args: LaunchChildArgs) => service.launchChild(args));
+
+  ipcMain.handle('appMonitor:killChild', (_e, sessionId: string) => service.killChild(sessionId));
 }

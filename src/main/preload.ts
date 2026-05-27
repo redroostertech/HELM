@@ -198,6 +198,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       summary: string;
       severity: string;
     }) => ipcRenderer.invoke('appMonitor:forwardToCruise', args),
+    pickDirectory: () => ipcRenderer.invoke('appMonitor:pickDirectory'),
+    inspectDirectory: (dir: string) => ipcRenderer.invoke('appMonitor:inspectDirectory', dir),
+    launchChild: (args: { sessionId: string; cwd: string; command: string }) =>
+      ipcRenderer.invoke('appMonitor:launchChild', args),
+    killChild: (sessionId: string) => ipcRenderer.invoke('appMonitor:killChild', sessionId),
+    onServerEvent: (callback: (sessionId: string, event: any) => void) => {
+      const handler = (_: any, sessionId: string, event: any) => callback(sessionId, event);
+      ipcRenderer.on('appMonitor:server-event', handler);
+      return () => ipcRenderer.removeListener('appMonitor:server-event', handler);
+    },
+    onUrlDetected: (callback: (sessionId: string, url: string) => void) => {
+      const handler = (_: any, sessionId: string, url: string) => callback(sessionId, url);
+      ipcRenderer.on('appMonitor:url-detected', handler);
+      return () => ipcRenderer.removeListener('appMonitor:url-detected', handler);
+    },
   },
 
   // Cruise Control
@@ -398,7 +413,7 @@ export interface ElectronAPI {
     appendEvent: (sessionId: string, event: {
       id: string;
       ts: number;
-      kind: 'console' | 'error' | 'navigation' | 'load' | 'crash' | 'network';
+      kind: 'console' | 'error' | 'navigation' | 'load' | 'crash' | 'network' | 'server';
       severity: 'verbose' | 'info' | 'warning' | 'error';
       message: string;
       meta?: Record<string, unknown>;
@@ -410,6 +425,19 @@ export interface ElectronAPI {
       summary: string;
       severity: string;
     }) => Promise<{ ok: boolean; error?: string }>;
+    pickDirectory: () => Promise<string | null>;
+    inspectDirectory: (dir: string) => Promise<{
+      ok: boolean;
+      error?: string;
+      kind?: 'node' | 'python' | 'static' | 'unknown';
+      scripts?: Array<{ name: string; command: string }>;
+      suggestions?: string[];
+    }>;
+    launchChild: (args: { sessionId: string; cwd: string; command: string }) =>
+      Promise<{ ok: boolean; pid?: number; error?: string }>;
+    killChild: (sessionId: string) => Promise<{ ok: boolean; error?: string }>;
+    onServerEvent: (callback: (sessionId: string, event: any) => void) => () => void;
+    onUrlDetected: (callback: (sessionId: string, url: string) => void) => () => void;
   };
 
   // Cruise Control

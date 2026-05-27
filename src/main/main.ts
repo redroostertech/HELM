@@ -259,6 +259,7 @@ function createWindow() {
   // AppMonitor service — owns webview-target sessions + cruise-forward seam
   appMonitorService = new AppMonitorService({
     getCruiseOrchestrator: () => cruiseOrchestrator,
+    getMainWindow: () => mainWindow,
   });
   registerAppMonitorIPC(appMonitorService);
 
@@ -1122,6 +1123,7 @@ app.on('before-quit', () => {
   mobileServer?.stop();
   helmIPCServer?.stop();
   ptyManager?.killAll();
+  appMonitorService?.killAllChildren();
   db?.close();
 });
 
