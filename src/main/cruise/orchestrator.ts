@@ -656,6 +656,49 @@ export class CruiseOrchestrator {
     this.agentByTabId.set(tabId, { runId: run.runId, agentId: ag.agentId });
     await this.db.updateCruiseAgent(ag.agentId, { tab_id: tabId });
     await this.appendEvent(run, ag.agentId, EVENT_TYPES.AGENT_SPAWNED, { tabId, programId: ag.programId, role: ag.role });
+
+    // For claude-code agents launched with --dangerously-skip-permissions,
+    // Claude Code shows a one-time-per-session "Bypass Permissions mode"
+    // warning that requires the user to type "2" to accept. Without that
+    // input the agent sits idle and eventually exits. Watch the PTY output
+    // for the warning and auto-accept on the agent's behalf — the user
+    // already authorized this when they started the Cruise run.
+    if (ag.programId === 'claude-code') {
+      this.armBypassPermissionsAutoAccept(run, ag, tabId);
+    }
+  }
+
+  /**
+   * Register a one-shot watcher on the agent's PTY that detects Claude Code's
+   * Bypass Permissions warning and injects "2\\r" to accept it. The watcher
+   * self-disarms after a successful accept or after a 30s timeout.
+   */
+  private armBypassPermissionsAutoAccept(run: RunState, ag: AgentState, tabId: string): void {
+    let accepted = false;
+    let buf = '';
+    const startedAt = Date.now();
+    const TIMEOUT_MS = 30_000;
+
+    this.ptyManager.onData(tabId, (data: string) => {
+      if (accepted) return;
+      if (Date.now() - startedAt > TIMEOUT_MS) { accepted = true; return; }
+
+      buf += data;
+      if (buf.length > 8_000) buf = buf.slice(-8_000);
+
+      // Strip ANSI for matching; the warning includes box-drawing + colors.
+      const stripped = buf.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '');
+      const isBypassWarning = /Bypass Permissions mode/i.test(stripped) &&
+                              /Yes,\s*I\s*accept/i.test(stripped);
+      if (isBypassWarning) {
+        accepted = true;
+        // "2" selects "Yes, I accept", "\r" submits.
+        try { this.ptyManager.write(tabId, '2\r'); } catch {}
+        this.appendEvent(run, ag.agentId, EVENT_TYPES.AGENT_OUTPUT, {
+          note: 'auto-accepted Claude Code Bypass Permissions warning', role: ag.role,
+        }).catch(() => {});
+      }
+    });
   }
 
   /** Called when ptyManager.onCLIStatus reports the agent's CLI is live. */
