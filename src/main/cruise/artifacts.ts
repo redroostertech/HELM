@@ -20,16 +20,74 @@ import { CruiseRunConfig } from '../database';
 export class ArtifactStore {
   constructor(public readonly repoPath: string) {}
 
-  static validateRepo(repoPath: string): { ok: boolean; error?: string } {
+  /**
+   * Validate the target repo for a Cruise run.
+   *
+   * AGENTS.md is required in both modes (it's the engineering contract).
+   *
+   * PRD.md handling depends on projectMode:
+   *   - "new" (default): PRD.md is required — a greenfield run must have a
+   *     stated product brief to refine.
+   *   - "existing": PRD.md is OPTIONAL. If missing, the caller is expected
+   *     to materialize a minimal stub via `ensurePrdStub` so the
+   *     PRD-refiner has something to refine against.
+   */
+  static validateRepo(
+    repoPath: string,
+    projectMode: 'new' | 'existing' = 'new',
+  ): { ok: boolean; error?: string } {
     if (!fs.existsSync(repoPath)) return { ok: false, error: `repo path does not exist: ${repoPath}` };
     if (!fs.statSync(repoPath).isDirectory()) return { ok: false, error: `not a directory: ${repoPath}` };
     if (!fs.existsSync(path.join(repoPath, 'AGENTS.md'))) {
       return { ok: false, error: `AGENTS.md not found in ${repoPath}` };
     }
-    if (!fs.existsSync(path.join(repoPath, 'PRD.md'))) {
-      return { ok: false, error: `PRD.md not found in ${repoPath}` };
+    if (projectMode === 'new' && !fs.existsSync(path.join(repoPath, 'PRD.md'))) {
+      return { ok: false, error: `PRD.md not found in ${repoPath} (required for New Project mode)` };
     }
     return { ok: true };
+  }
+
+  /**
+   * For existing-project runs: if PRD.md is missing, create a minimal stub
+   * the PRD-refiner can build on. Returns true if a stub was created.
+   *
+   * The stub is intentionally sparse — it asks the refiner to explore the
+   * repo and propose deltas rather than re-stating what's already shipped.
+   */
+  static ensurePrdStub(repoPath: string): boolean {
+    const prdPath = path.join(repoPath, 'PRD.md');
+    if (fs.existsSync(prdPath)) return false;
+    const stub = [
+      '# PRD (stub — to be refined)',
+      '',
+      '_This PRD was auto-created by HELM Cruise Control because the repo did',
+      'not have a PRD.md at the start of an Existing Project run. The PRD',
+      'Refiner will replace this content with a refined version that captures',
+      'the user\'s requested deltas against the existing codebase._',
+      '',
+      '## Context',
+      '',
+      'This is an existing codebase. Explore the repo (package.json or',
+      'equivalent, top-level directories, README if present, AGENTS.md) to',
+      'understand the current shape before proposing changes.',
+      '',
+      '## Goals (to be filled in)',
+      '',
+      '_Describe the additions / modifications the user wants. Do NOT',
+      'rewrite the project from scratch. Preserve existing architectural',
+      'decisions unless the user explicitly contradicts them._',
+      '',
+      '## Non-goals',
+      '',
+      '_What is explicitly out of scope for this run._',
+      '',
+      '## Acceptance criteria',
+      '',
+      '_How we know the deltas have landed correctly._',
+      '',
+    ].join('\n');
+    fs.writeFileSync(prdPath, stub);
+    return true;
   }
 
   cruiseDir(): string {

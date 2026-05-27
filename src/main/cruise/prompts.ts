@@ -24,6 +24,12 @@ export interface PromptContext {
   previousReviewNotes?: string;
   /** Live team roster (post-plan); empty until plan-refine completes */
   team?: { builders: TeamMemberSpec[]; reviewers: TeamMemberSpec[] };
+  /**
+   * Project posture for this run. Defaults to "new" for backwards
+   * compatibility, but agents receive a mode line in the preamble so
+   * their behavior adapts (greenfield vs. modify-existing).
+   */
+  projectMode?: 'new' | 'existing';
 }
 
 /**
@@ -31,6 +37,10 @@ export interface PromptContext {
  * Everything below this is role-specific.
  */
 function preamble(ctx: PromptContext, role: string): string {
+  const mode = ctx.projectMode ?? 'new';
+  const modeLine = mode === 'existing'
+    ? 'Project mode:      existing  (modify/extend an existing codebase; deltas only)'
+    : 'Project mode:      new       (greenfield scaffold from PRD)';
   return `
 You are part of HELM Cruise Control run #${ctx.runId}, a multi-agent collaboration to ship a project end-to-end.
 
@@ -38,6 +48,7 @@ Working directory:  ${ctx.repoPath}
 Run artifacts:      ${ctx.runDir}/
 Your inbox:         ${ctx.runDir}/inbox/${role}.md
 Your role:          ${role}
+${modeLine}
 
 == Run protocol =============================================================
 
@@ -146,6 +157,32 @@ function rosterBlock(ctx: PromptContext): string {
 }
 
 export function prdRefinerPrompt(ctx: PromptContext): string {
+  const isExisting = ctx.projectMode === 'existing';
+  const existingModeNote = isExisting
+    ? [
+        '',
+        '### Existing-project posture (IMPORTANT)',
+        '',
+        'This is an EXISTING codebase, not a greenfield scaffold. Before',
+        'refining the PRD, do a code exploration pass:',
+        '  - Read package.json (or pyproject.toml / Cargo.toml / go.mod / etc.)',
+        '    to understand the language, framework, and runtime.',
+        '  - Skim the top-level directory structure.',
+        '  - Read README.md if present.',
+        '  - Note the existing architectural patterns (where routes live,',
+        '    how state is managed, how things are tested).',
+        '',
+        'Then refine PRD.md to describe the DELTAS / ADDITIONS the user wants,',
+        'NOT a from-scratch rewrite. Preserve existing architectural decisions',
+        'unless the PRD explicitly contradicts them. Frame acceptance',
+        'criteria against what the deltas should look like once landed.',
+        '',
+        'If the current PRD.md is a stub auto-created by Cruise (it will say',
+        'so at the top), replace it entirely with your refined delta-focused',
+        'PRD. If the user wrote real content, treat it as authoritative intent',
+        'and refine without losing their points.',
+      ].join('\n')
+    : '';
   return [
     preamble(ctx, 'prd-refiner'),
     '',
@@ -162,6 +199,7 @@ export function prdRefinerPrompt(ctx: PromptContext): string {
     `  - ${ctx.repoPath}/AGENTS.md   (engineering conventions; read-only)`,
     `  - ${ctx.repoPath}/PRD.md      (current draft; you will overwrite this)`,
     `  - ${ctx.runDir}/inbox/prd-refiner.md  (any messages from other agents)`,
+    existingModeNote,
     '',
     '### Refined PRD must include',
     '  - Goals and explicit non-goals',
@@ -257,6 +295,24 @@ export function planContinuationPrompt(ctx: PromptContext): string {
  */
 export function builderSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): string {
   const role = `builder-${spec.id}`;
+  const isExisting = ctx.projectMode === 'existing';
+  const modificationsOnly = isExisting
+    ? [
+        '',
+        '## Modifications-only mandate (existing-project run)',
+        '',
+        'You are extending an existing codebase. Hard rules:',
+        '  - Do NOT refactor unrelated code.',
+        '  - Do NOT rewrite working files unless your slice REQUIRES the',
+        '    rewrite to land your change.',
+        '  - Match the existing style, patterns, and dependencies — do not',
+        '    introduce new libraries to solve a problem the repo already',
+        '    has a pattern for.',
+        '  - Surface non-obvious assumptions about existing behavior in your',
+        '    build-manifest entry (e.g. "assumed health endpoint contract is',
+        '    {status,ts}; existing handler at apps/api/health.py confirms").',
+      ].join('\n')
+    : '';
   return [
     preamble({ ...ctx }, role),
     '',
@@ -270,6 +326,7 @@ export function builderSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): str
     'your slices touch.',
     '',
     rosterBlock(ctx),
+    modificationsOnly,
     '',
     '## Inputs to read',
     `  - ${ctx.runDir}/prd-approved.md      (human-approved refined PRD)`,
@@ -364,6 +421,21 @@ export function builderPrompt(ctx: PromptContext): string {
  */
 export function reviewerSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): string {
   const role = `reviewer-${spec.id}`;
+  const isExisting = ctx.projectMode === 'existing';
+  const deltaScope = isExisting
+    ? [
+        '',
+        '## Delta-scoped review (existing-project run)',
+        '',
+        'Review against the DELTA — what changed in this run — not the',
+        'entire repo. Pre-existing technical debt is OUT of scope unless it',
+        'directly affects the new work. If a builder\'s change touched a',
+        'fragile area but did not cause the fragility, note it as `info`',
+        'severity at most; do not block the run on pre-existing issues.',
+        '',
+        'Use `git diff` (or build-manifest.json) to bound your review surface.',
+      ].join('\n')
+    : '';
   return [
     preamble({ ...ctx }, role),
     '',
@@ -375,6 +447,7 @@ export function reviewerSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): st
     'you to lead the review phase.',
     '',
     rosterBlock(ctx),
+    deltaScope,
     '',
     '## When you take lead, review against',
     `  - ${ctx.runDir}/prd-approved.md      (what was promised)`,
@@ -492,6 +565,64 @@ export function phaseLeadPrompt(role: string, phase: string, ctx: PromptContext)
     extra = `\nThis is review cycle ${ctx.reviewCycle}. Read ${ctx.runDir}/review-${ctx.reviewCycle - 1}.md and address every point.`;
   }
   return `===CRUISE:PHASE-LEAD===\nYou are now leading the ${phase} phase as ${role}.${extra}\n===CRUISE:END===`;
+}
+
+/**
+ * Continuation prompt sent to each builder when the user re-opens a `done`
+ * run with new goals. The build phase has already produced a working
+ * codebase; these goals are ADDITIVE work atop that base, not a re-do.
+ */
+export function builderContinuationPrompt(goals: string[], ctx: PromptContext): string {
+  const goalList = goals
+    .map(g => g.trim())
+    .filter(g => g.length > 0)
+    .map((g, i) => `  ${i + 1}. ${g}`)
+    .join('\n');
+  return [
+    '===CRUISE:CONTINUATION===',
+    '## Continuation: new goals from the user',
+    '',
+    'The previous build cycle completed and the run was marked done. The',
+    'user has now added new goals on top of the existing implementation.',
+    'Treat them as ADDITIVE work — extend the codebase to satisfy them.',
+    'Do NOT redo or refactor work that already shipped unless one of the',
+    'new goals explicitly requires it.',
+    '',
+    '### New goals',
+    goalList || '  (none specified — ask the user via MSG-TO-user)',
+    '',
+    `Re-read ${ctx.runDir}/prd-approved.md and ${ctx.runDir}/build-manifest.json`,
+    'to ground yourself in what already exists, then implement the deltas.',
+    '',
+    'When your slice is complete for THIS continuation, emit',
+    `${MARKERS.BUILD_COMPLETE} again — the reviewer will re-review against`,
+    'the new goals.',
+    '===CRUISE:END===',
+  ].join('\n');
+}
+
+/**
+ * Continuation prompt sent to each reviewer when a `done` run is reopened.
+ * They stay quiet until builders signal BUILD_COMPLETE again, then re-review
+ * against the new goals.
+ */
+export function reviewerContinuationPrompt(goals: string[], _ctx: PromptContext): string {
+  const goalList = goals
+    .map(g => g.trim())
+    .filter(g => g.length > 0)
+    .map((g, i) => `  ${i + 1}. ${g}`)
+    .join('\n');
+  return [
+    '===CRUISE:CONTINUATION===',
+    'A new round of goals has been added to this run. Builders are working',
+    'on them now. Wait silently; once every builder signals',
+    `${MARKERS.BUILD_COMPLETE} again, re-review the deltas against these`,
+    'new goals (in addition to the original PRD).',
+    '',
+    '### New goals',
+    goalList || '  (none specified)',
+    '===CRUISE:END===',
+  ].join('\n');
 }
 
 /**

@@ -321,6 +321,7 @@ export const EVENT_TYPES = {
   RUN_STOPPED:        'run.stopped',
   RUN_COMPLETED:      'run.completed',
   RUN_FAILED:         'run.failed',
+  RUN_CONTINUED:      'run.continued',
   PHASE_ENTERED:      'phase.entered',
   PHASE_EXITED:       'phase.exited',
   AGENT_SPAWNED:      'agent.spawned',

@@ -98,6 +98,16 @@ export type CruiseAgentStatus =
 export interface CruiseRunConfig {
   /** Path to the target repo containing AGENTS.md + PRD.md */
   targetRepo: string;
+  /**
+   * Project posture for the run:
+   *   - "new":      greenfield scaffold (requires PRD.md + AGENTS.md)
+   *   - "existing": modify/extend an existing codebase (PRD.md is optional;
+   *                 a stub is created if missing). Agents are instructed
+   *                 to explore the repo first and propose deltas instead
+   *                 of rewriting.
+   * Defaults to "new" for backwards compatibility with pre-mode runs.
+   */
+  projectMode?: 'new' | 'existing';
   /** Agent role → CLI program id mapping. Default: prd-refiner/reviewer = claude-code, builder = codex */
   agents: Array<{ role: CruiseAgentRole; programId: string; label?: string }>;
   /** Threshold for "blocked on input" detection */
