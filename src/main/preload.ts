@@ -185,6 +185,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('helm:tabsResponse', requestId, tabs);
   },
 
+  // AppMonitor
+  appMonitor: {
+    listSessions: () => ipcRenderer.invoke('appMonitor:listSessions'),
+    recordSession: (session: any) => ipcRenderer.invoke('appMonitor:recordSession', session),
+    appendEvent: (sessionId: string, event: any) =>
+      ipcRenderer.invoke('appMonitor:appendEvent', sessionId, event),
+    endSession: (sessionId: string) => ipcRenderer.invoke('appMonitor:endSession', sessionId),
+    forwardToCruise: (args: {
+      runId: number;
+      role: string;
+      summary: string;
+      severity: string;
+    }) => ipcRenderer.invoke('appMonitor:forwardToCruise', args),
+  },
+
   // Cruise Control
   cruise: {
     listRuns: () => ipcRenderer.invoke('cruise:listRuns'),
@@ -346,6 +361,46 @@ export interface ElectronAPI {
   onNewTabFromCLI: (callback: (info: { tabId: string; label: string }) => void) => () => void;
   onTabsRequest: (callback: (requestId: string) => void) => () => void;
   sendTabsResponse: (requestId: string, tabs: any[]) => void;
+
+  // AppMonitor
+  appMonitor: {
+    listSessions: () => Promise<Array<{
+      id: string;
+      url: string;
+      startedAt: number;
+      endedAt: number | null;
+      events: Array<{
+        id: string;
+        ts: number;
+        kind: 'console' | 'error' | 'navigation' | 'load' | 'crash' | 'network';
+        severity: 'verbose' | 'info' | 'warning' | 'error';
+        message: string;
+        meta?: Record<string, unknown>;
+      }>;
+    }>>;
+    recordSession: (session: {
+      id: string;
+      url: string;
+      startedAt: number;
+      endedAt: number | null;
+      events: any[];
+    }) => Promise<{ ok: boolean }>;
+    appendEvent: (sessionId: string, event: {
+      id: string;
+      ts: number;
+      kind: 'console' | 'error' | 'navigation' | 'load' | 'crash' | 'network';
+      severity: 'verbose' | 'info' | 'warning' | 'error';
+      message: string;
+      meta?: Record<string, unknown>;
+    }) => Promise<{ ok: boolean }>;
+    endSession: (sessionId: string) => Promise<{ ok: boolean }>;
+    forwardToCruise: (args: {
+      runId: number;
+      role: string;
+      summary: string;
+      severity: string;
+    }) => Promise<{ ok: boolean; error?: string }>;
+  };
 
   // Cruise Control
   cruise: {
