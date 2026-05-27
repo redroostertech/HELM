@@ -33,6 +33,7 @@ import {
   extractTeam,
   clampTeam,
   extractTasks,
+  extractGoals,
   TeamSpec,
   TeamMemberSpec,
   MessageTarget,
@@ -45,6 +46,7 @@ import {
   runDirForRun,
   phaseLeadPrompt,
   deliverMessage,
+  PromptContext,
 } from './prompts';
 
 export interface CruiseOrchestratorHooks {
@@ -293,6 +295,50 @@ export class CruiseOrchestrator {
     } else {
       await this.transitionPhase(run, { type: 'review-request-changes' });
     }
+  }
+
+  // ── Goals API ─────────────────────────────────────────────────────
+
+  async listGoals(runId: number) {
+    return this.db.getCruiseGoals(runId);
+  }
+
+  /**
+   * Update a goal's status. Persists, fires goal.updated to the audit log,
+   * and broadcasts cruise:goal so the renderer can refresh live. Works
+   * whether or not the run is currently active in memory.
+   */
+  async updateGoalStatus(goalId: number, status: 'open' | 'in_progress' | 'done' | 'deferred'): Promise<void> {
+    await this.db.updateCruiseGoalStatus(goalId, status);
+
+    // We need the run id to surface a useful broadcast — look it up.
+    const rows = await (this.db as any).pool.query(
+      'SELECT * FROM cruise_goals WHERE id = $1',
+      [goalId],
+    );
+    const goal = rows.rows[0];
+    if (!goal) return;
+    const runId: number = goal.run_id;
+
+    const run = this.runs.get(runId);
+    if (run) {
+      await this.appendEvent(run, null, EVENT_TYPES.GOAL_UPDATED, {
+        goalId, status, title: goal.title, ownerRole: goal.owner_role,
+      });
+    } else {
+      // Run not active — still persist an event so audit trail is complete.
+      try {
+        await this.db.appendCruiseEvent(runId, null, EVENT_TYPES.GOAL_UPDATED, goal.status, {
+          goalId, status, title: goal.title, ownerRole: goal.owner_role,
+        });
+      } catch {}
+    }
+
+    this.hooks.broadcast('cruise:goal', {
+      runId, goalId, title: goal.title, description: goal.description,
+      acceptanceCriteria: goal.acceptance_criteria || [],
+      ownerRole: goal.owner_role, status,
+    });
   }
 
   // ── Read API ──────────────────────────────────────────────────────
@@ -593,6 +639,14 @@ export class CruiseOrchestrator {
         await this.appendEvent(run, ag.agentId, EVENT_TYPES.ERROR, { reason: `no team spec for ${ag.role}` });
         return;
       }
+      // Fetch open goals owned by this builder so the kickoff lists them.
+      try {
+        const goals = await this.db.getOpenCruiseGoalsFor(run.runId, ag.role);
+        promptCtx.openGoals = goals.map(g => ({
+          id: g.id, title: g.title,
+          acceptance: Array.isArray(g.acceptance_criteria) ? g.acceptance_criteria : [],
+        }));
+      } catch {}
       prompt = builderSlotPrompt(promptCtx, spec);
     } else if (ag.role.startsWith('reviewer-')) {
       const id = ag.role.slice('reviewer-'.length);
@@ -634,7 +688,7 @@ export class CruiseOrchestrator {
   }
 
   /** Build the PromptContext for this run (paths + cycle + carried review + team). */
-  private promptCtx(run: RunState) {
+  private promptCtx(run: RunState): PromptContext {
     return {
       runId: run.runId,
       repoPath: run.config.targetRepo,
@@ -729,8 +783,22 @@ export class CruiseOrchestrator {
     const fromAgent = run.agents.find(a => a.agentId === agentId);
     if (!fromAgent) return;
 
-    // 1. Extract inter-agent MSG-TO blocks and route them.
-    const msgExtract = extractMessages(content);
+    // 1. Extract CRUISE:GOAL blocks first. Goals are the most "static" output
+    //    (declared by the PRD refiner, persisted once) — extracting them up
+    //    front means that if the same output references a freshly-declared
+    //    goal in a TASK marker (goal=N), the id is already assigned.
+    const goalExtract = extractGoals(content);
+    for (const g of goalExtract.goals) {
+      try { await this.persistAndBroadcastGoal(run, fromAgent, g.title, g.description || null, g.acceptanceCriteria, g.owner || null); }
+      catch (e: any) {
+        await this.appendEvent(run, fromAgent.agentId, EVENT_TYPES.ERROR, {
+          reason: `persistAndBroadcastGoal failed`, title: g.title, error: e?.message,
+        });
+      }
+    }
+
+    // 2. Extract inter-agent MSG-TO blocks and route them.
+    const msgExtract = extractMessages(goalExtract.residual);
     for (const m of msgExtract.messages) {
       try { await this.routeMessage(run, fromAgent, m.target, m.body); }
       catch (e: any) {
@@ -740,10 +808,10 @@ export class CruiseOrchestrator {
       }
     }
 
-    // 2. Extract TASK-FOR-{owner} blocks. Persist + route to the owner.
+    // 3. Extract TASK-FOR-{owner} blocks. Persist + route to the owner.
     const taskExtract = extractTasks(msgExtract.residual);
     for (const t of taskExtract.tasks) {
-      try { await this.persistAndRouteTask(run, fromAgent, t.owner, t.severity, t.body, t.related || null); }
+      try { await this.persistAndRouteTask(run, fromAgent, t.owner, t.severity, t.body, t.related || null, t.goalId ?? null); }
       catch (e: any) {
         await this.appendEvent(run, fromAgent.agentId, EVENT_TYPES.ERROR, {
           reason: `persistAndRouteTask failed`, owner: t.owner, error: e?.message,
@@ -857,26 +925,74 @@ export class CruiseOrchestrator {
     severity: 'low' | 'medium' | 'high' | 'critical' | 'info',
     body: string,
     related: string | null,
+    goalId: number | null,
   ): Promise<void> {
-    const taskId = await this.db.createCruiseTask(run.runId, fromAgent.agentId, owner, severity, body, related);
+    const taskId = await this.db.createCruiseTask(run.runId, fromAgent.agentId, owner, severity, body, related, goalId);
     await this.appendEvent(run, fromAgent.agentId, EVENT_TYPES.TASK_CREATED, {
       taskId, from: fromAgent.role, owner, severity,
-      bodyPreview: body.slice(0, 200), related,
+      bodyPreview: body.slice(0, 200), related, goalId,
     });
 
     // Mirror to .cruise/runs/{id}/tasks.md (append-only)
     try {
       const tasksFile = path.join(run.store.runDir(run.runId), 'tasks.md');
-      const block = `\n## Task #${taskId} → ${owner}  (${severity})  · from ${fromAgent.role}\n${related ? `Related: ${related}\n` : ''}\n${body}\n`;
+      const goalTag = goalId ? `  · goal #${goalId}` : '';
+      const block = `\n## Task #${taskId} → ${owner}  (${severity})${goalTag}  · from ${fromAgent.role}\n${related ? `Related: ${related}\n` : ''}\n${body}\n`;
       fs.appendFileSync(tasksFile, block);
     } catch {}
 
     // Deliver as a message into the owner's session
+    const goalSuffix = goalId ? ` · goal=${goalId}` : '';
     const wrappedBody =
-      `[TASK #${taskId} · severity=${severity}${related ? ` · related=${related}` : ''}]\n\n` +
+      `[TASK #${taskId} · severity=${severity}${related ? ` · related=${related}` : ''}${goalSuffix}]\n\n` +
       body +
       `\n\nWhen this task is resolved, reply with MSG-TO-${fromAgent.role} confirming the fix.`;
     await this.routeMessage(run, fromAgent, owner as MessageTarget, wrappedBody);
+  }
+
+  /**
+   * Persist a CRUISE:GOAL block into cruise_goals, broadcast a live event
+   * to the renderer, and mirror to .cruise/runs/{id}/goals.md (append-only).
+   */
+  private async persistAndBroadcastGoal(
+    run: RunState,
+    fromAgent: AgentState,
+    title: string,
+    description: string | null,
+    acceptanceCriteria: string[],
+    ownerRole: string | null,
+  ): Promise<void> {
+    const goalId = await this.db.createCruiseGoal(
+      run.runId,
+      title,
+      description,
+      acceptanceCriteria.length > 0 ? acceptanceCriteria : null,
+      ownerRole,
+    );
+    const payload = {
+      goalId, title, description, acceptanceCriteria,
+      ownerRole, status: 'open' as const, from: fromAgent.role,
+    };
+    await this.appendEvent(run, fromAgent.agentId, EVENT_TYPES.GOAL_CREATED, payload);
+    this.hooks.broadcast('cruise:goal', { runId: run.runId, ...payload });
+
+    try {
+      const goalsFile = path.join(run.store.runDir(run.runId), 'goals.md');
+      const lines: string[] = [];
+      lines.push(`\n## Goal #${goalId} — ${title}`);
+      lines.push(`Owner: ${ownerRole || '(run-level)'}  · from ${fromAgent.role}`);
+      if (acceptanceCriteria.length > 0) {
+        lines.push('');
+        lines.push('Acceptance criteria:');
+        for (const c of acceptanceCriteria) lines.push(`  - [ ] ${c}`);
+      }
+      if (description) {
+        lines.push('');
+        lines.push(description);
+      }
+      lines.push('');
+      fs.appendFileSync(goalsFile, lines.join('\n'));
+    } catch {}
   }
 
   // ── Internal: attention plumbing ─────────────────────────────────
