@@ -27,11 +27,13 @@ interface TabBarProps {
   onToggleSidebar?: () => void;
   cruiseOpen?: boolean;
   onToggleCruise?: () => void;
+  appMonitorOpen?: boolean;
+  onToggleAppMonitor?: () => void;
 }
 
 const MAX_TABS = 7;
 
-export default function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onNewTab, onRenameTab, onSettingsClick, chatOpen, onToggleChat, sessionsOpen, onToggleSessions, sidebarOpen, onToggleSidebar, cruiseOpen, onToggleCruise }: TabBarProps) {
+export default function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onNewTab, onRenameTab, onSettingsClick, chatOpen, onToggleChat, sessionsOpen, onToggleSessions, sidebarOpen, onToggleSidebar, cruiseOpen, onToggleCruise, appMonitorOpen, onToggleAppMonitor }: TabBarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
 
@@ -159,6 +161,20 @@ export default function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onN
             <path d="M3 21l3-5"/>
             <path d="M21 3l-5 3"/>
             <circle cx="9" cy="14" r="4"/>
+          </svg>
+        </button>
+
+        <button
+          className={`tab-action-btn ${appMonitorOpen ? 'panel-active' : ''}`}
+          onClick={onToggleAppMonitor}
+          title="AppMonitor (live runtime observability)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+            <circle cx="11" cy="10" r="3"/>
+            <line x1="13.2" y1="12.2" x2="15.5" y2="14.5"/>
           </svg>
         </button>
 

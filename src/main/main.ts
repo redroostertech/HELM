@@ -42,6 +42,7 @@ import { HelmIPCServer, PendingTabContext, TabInfo } from './helm-ipc-server';
 import { installCLI } from './cli-install';
 import { CruiseOrchestrator } from './cruise/orchestrator';
 import type { CruiseRunConfig } from './database';
+import { AppMonitorService, registerAppMonitorIPC } from './app-monitor/service';
 
 // Register custom protocol for deep linking (helm://)
 if (process.defaultApp) {
@@ -60,6 +61,7 @@ let licenseManager: LicenseManager | null = null;
 let mobileServer: MobileAccessServer | null = null;
 let helmIPCServer: HelmIPCServer | null = null;
 let cruiseOrchestrator: CruiseOrchestrator | null = null;
+let appMonitorService: AppMonitorService | null = null;
 let lastReportedTabs: TabInfo[] = [];
 // Pending tab-list requests keyed by requestId, awaiting renderer response
 const pendingTabRequests: Map<string, (tabs: TabInfo[]) => void> = new Map();
@@ -119,6 +121,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false, // Required for node-pty
+      webviewTag: true, // Required for AppMonitor <webview> target embedding
     },
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
@@ -252,6 +255,12 @@ function createWindow() {
     },
   });
   cruiseOrchestrator.attach();
+
+  // AppMonitor service — owns webview-target sessions + cruise-forward seam
+  appMonitorService = new AppMonitorService({
+    getCruiseOrchestrator: () => cruiseOrchestrator,
+  });
+  registerAppMonitorIPC(appMonitorService);
 
   // Build an application menu with an "Install CLI…" item
   buildApplicationMenu();
