@@ -474,6 +474,158 @@
 .cruise-audit-item.evt-task    .cruise-audit-type { color: #f5a623; }
 .cruise-audit-item.evt-task { background: rgba(245, 166, 35, 0.04); }
 .cruise-audit-item.evt-team    .cruise-audit-type { color: #3ab36e; }
+.cruise-audit-item.evt-goal    .cruise-audit-type { color: #c084fc; }
+.cruise-audit-item.evt-goal { background: rgba(192, 132, 252, 0.04); }
+
+/* ── Goals panel ─────────────────────────────────────────── */
+
+.cruise-goals-panel {
+  margin: 12px 20px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+[data-theme="light"] .cruise-goals-panel {
+  background: rgba(0,0,0,0.02);
+  border-color: rgba(0,0,0,0.08);
+}
+
+.cruise-goals-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cruise-goals-header:hover { background: rgba(255,255,255,0.03); }
+[data-theme="light"] .cruise-goals-header:hover { background: rgba(0,0,0,0.03); }
+
+.cruise-goals-toggle {
+  width: 12px;
+  text-align: center;
+  font-size: 10px;
+  color: #888;
+}
+
+.cruise-goals-title { color: #d4d4d4; }
+[data-theme="light"] .cruise-goals-title { color: #333; }
+
+.cruise-goals-summary {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: #888;
+}
+
+.cruise-goals-list {
+  padding: 4px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cruise-goal-item {
+  padding: 8px 14px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+[data-theme="light"] .cruise-goal-item { border-top-color: rgba(0,0,0,0.06); }
+
+.cruise-goal-item.status-done { opacity: 0.72; }
+
+.cruise-goal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.cruise-goal-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 1px solid;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.cruise-goal-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.cruise-goal-id {
+  font-family: 'SF Mono', 'Monaco', monospace;
+  font-size: 10px;
+  color: #888;
+}
+
+.cruise-goal-title {
+  flex: 1;
+  color: #d4d4d4;
+  font-weight: 500;
+}
+[data-theme="light"] .cruise-goal-title { color: #333; }
+
+.cruise-goal-item.status-done .cruise-goal-title {
+  text-decoration: line-through;
+  color: #888;
+}
+
+.cruise-goal-owner {
+  font-size: 10px;
+  color: #4a9eff;
+  background: rgba(74, 158, 255, 0.1);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-family: 'SF Mono', 'Monaco', monospace;
+}
+
+.cruise-goal-acceptance {
+  list-style: none;
+  margin: 6px 0 0 0;
+  padding: 0 0 0 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cruise-goal-acceptance li {
+  font-size: 11px;
+  color: #aaa;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.cruise-goal-check {
+  color: #666;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.cruise-goal-check.checked { color: #3ab36e; }
+
+.cruise-goal-desc {
+  margin: 6px 0 0 28px;
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 
 /* ── PRD approval gate ───────────────────────────────────── */
 

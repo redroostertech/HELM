@@ -164,8 +164,23 @@ export interface CruiseTask {
   status: CruiseTaskStatus;
   body: string;
   related: string | null;
+  goal_id: number | null;
   created_at: string;
   resolved_at: string | null;
+}
+
+export type CruiseGoalStatus = 'open' | 'in_progress' | 'done' | 'deferred';
+
+export interface CruiseGoal {
+  id: number;
+  run_id: number;
+  title: string;
+  description: string | null;
+  acceptance_criteria: string[] | null;
+  owner_role: string | null;
+  status: CruiseGoalStatus;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export class DatabaseManager {
@@ -310,6 +325,18 @@ export class DatabaseManager {
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS cruise_goals (
+          id SERIAL PRIMARY KEY,
+          run_id INTEGER NOT NULL REFERENCES cruise_runs(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          description TEXT,
+          acceptance_criteria JSONB,
+          owner_role TEXT,
+          status TEXT NOT NULL DEFAULT 'open',
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          completed_at TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS cruise_tasks (
           id SERIAL PRIMARY KEY,
           run_id INTEGER NOT NULL REFERENCES cruise_runs(id) ON DELETE CASCADE,
@@ -319,6 +346,7 @@ export class DatabaseManager {
           status TEXT NOT NULL DEFAULT 'open',
           body TEXT NOT NULL,
           related TEXT,
+          goal_id INTEGER REFERENCES cruise_goals(id) ON DELETE SET NULL,
           created_at TIMESTAMP NOT NULL DEFAULT NOW(),
           resolved_at TIMESTAMP
         );
@@ -329,6 +357,14 @@ export class DatabaseManager {
         CREATE INDEX IF NOT EXISTS idx_cruise_checkpoints_run ON cruise_checkpoints(run_id);
         CREATE INDEX IF NOT EXISTS idx_cruise_tasks_run ON cruise_tasks(run_id);
         CREATE INDEX IF NOT EXISTS idx_cruise_tasks_assignee ON cruise_tasks(run_id, assigned_to_role, status);
+        CREATE INDEX IF NOT EXISTS idx_cruise_goals_run ON cruise_goals(run_id);
+        CREATE INDEX IF NOT EXISTS idx_cruise_goals_owner ON cruise_goals(run_id, owner_role, status);
+      `);
+
+      // Backfill goal_id column on cruise_tasks for pre-goals deployments.
+      await client.query(`
+        ALTER TABLE cruise_tasks ADD COLUMN IF NOT EXISTS goal_id INTEGER
+          REFERENCES cruise_goals(id) ON DELETE SET NULL;
       `);
 
       console.log('✅ PostgreSQL database initialized');
@@ -1003,11 +1039,12 @@ export class DatabaseManager {
     severity: CruiseTaskSeverity,
     body: string,
     related: string | null,
+    goalId: number | null = null,
   ): Promise<number> {
     const result = await this.pool.query(
-      `INSERT INTO cruise_tasks (run_id, created_by_agent_id, assigned_to_role, severity, body, related)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [runId, createdByAgentId, assignedToRole, severity, body, related]
+      `INSERT INTO cruise_tasks (run_id, created_by_agent_id, assigned_to_role, severity, body, related, goal_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [runId, createdByAgentId, assignedToRole, severity, body, related, goalId]
     );
     return result.rows[0].id;
   }
@@ -1031,6 +1068,51 @@ export class DatabaseManager {
   async getOpenCruiseTasksFor(runId: number, role: string): Promise<CruiseTask[]> {
     const result = await this.pool.query(
       `SELECT * FROM cruise_tasks WHERE run_id = $1 AND assigned_to_role = $2 AND status IN ('open', 'in_progress') ORDER BY created_at ASC`,
+      [runId, role]
+    );
+    return result.rows;
+  }
+
+  async createCruiseGoal(
+    runId: number,
+    title: string,
+    description: string | null,
+    acceptanceCriteria: string[] | null,
+    ownerRole: string | null,
+  ): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO cruise_goals (run_id, title, description, acceptance_criteria, owner_role)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [
+        runId,
+        title,
+        description,
+        acceptanceCriteria ? JSON.stringify(acceptanceCriteria) : null,
+        ownerRole,
+      ]
+    );
+    return result.rows[0].id;
+  }
+
+  async updateCruiseGoalStatus(goalId: number, status: CruiseGoalStatus): Promise<void> {
+    const ts = status === 'done' ? new Date().toISOString() : null;
+    await this.pool.query(
+      `UPDATE cruise_goals SET status = $2, completed_at = $3 WHERE id = $1`,
+      [goalId, status, ts]
+    );
+  }
+
+  async getCruiseGoals(runId: number): Promise<CruiseGoal[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM cruise_goals WHERE run_id = $1 ORDER BY created_at ASC`,
+      [runId]
+    );
+    return result.rows;
+  }
+
+  async getOpenCruiseGoalsFor(runId: number, role: string): Promise<CruiseGoal[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM cruise_goals WHERE run_id = $1 AND owner_role = $2 AND status IN ('open', 'in_progress') ORDER BY created_at ASC`,
       [runId, role]
     );
     return result.rows;

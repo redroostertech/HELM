@@ -199,10 +199,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     submitReviewDecision: (runId: number, decision: 'accept' | 'request-changes') =>
       ipcRenderer.invoke('cruise:submitReviewDecision', runId, decision),
     pickRepo: () => ipcRenderer.invoke('cruise:pickRepo'),
+    listGoals: (runId: number) => ipcRenderer.invoke('cruise:listGoals', runId),
+    updateGoal: (goalId: number, status: 'open' | 'in_progress' | 'done' | 'deferred') =>
+      ipcRenderer.invoke('cruise:updateGoal', goalId, status),
     onEvent: (callback: (event: any) => void) => {
       const handler = (_: any, event: any) => callback(event);
       ipcRenderer.on('cruise:event', handler);
       return () => ipcRenderer.removeListener('cruise:event', handler);
+    },
+    onGoal: (callback: (goal: any) => void) => {
+      const handler = (_: any, goal: any) => callback(goal);
+      ipcRenderer.on('cruise:goal', handler);
+      return () => ipcRenderer.removeListener('cruise:goal', handler);
     },
     onAttention: (callback: (signal: any) => void) => {
       const handler = (_: any, signal: any) => callback(signal);
@@ -365,7 +373,28 @@ export interface ElectronAPI {
     approvePRD: (runId: number, editedContent?: string) => Promise<{ ok: boolean }>;
     submitReviewDecision: (runId: number, decision: 'accept' | 'request-changes') => Promise<{ ok: boolean }>;
     pickRepo: () => Promise<{ path: string | null }>;
+    listGoals: (runId: number) => Promise<Array<{
+      id: number;
+      run_id: number;
+      title: string;
+      description: string | null;
+      acceptance_criteria: string[] | null;
+      owner_role: string | null;
+      status: 'open' | 'in_progress' | 'done' | 'deferred';
+      created_at: string;
+      completed_at: string | null;
+    }>>;
+    updateGoal: (goalId: number, status: 'open' | 'in_progress' | 'done' | 'deferred') => Promise<{ ok: boolean }>;
     onEvent: (callback: (event: any) => void) => () => void;
+    onGoal: (callback: (goal: {
+      runId: number;
+      goalId: number;
+      title: string;
+      description: string | null;
+      acceptanceCriteria: string[];
+      ownerRole: string | null;
+      status: 'open' | 'in_progress' | 'done' | 'deferred';
+    }) => void) => () => void;
     onAttention: (callback: (signal: { runId: number; agentId: number; tabId: string; reason: string; at: number }) => void) => () => void;
     onAttentionCleared: (callback: (signal: { runId: number; agentId: number; tabId: string; at: number }) => void) => () => void;
     onPhaseChanged: (callback: (signal: { runId: number; from: string; to: string; at: number }) => void) => () => void;

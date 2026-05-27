@@ -24,6 +24,20 @@ export interface PromptContext {
   previousReviewNotes?: string;
   /** Live team roster (post-plan); empty until plan-refine completes */
   team?: { builders: TeamMemberSpec[]; reviewers: TeamMemberSpec[] };
+  /** Open goals owned by the agent receiving this prompt (builders/reviewers) */
+  openGoals?: Array<{ id: number; title: string; acceptance: string[] }>;
+}
+
+function openGoalsBlock(ctx: PromptContext): string {
+  if (!ctx.openGoals || ctx.openGoals.length === 0) {
+    return '(no open goals are currently assigned to you)';
+  }
+  const lines: string[] = ['Open goals assigned to you (address every one before declaring done):'];
+  for (const g of ctx.openGoals) {
+    lines.push(`  - Goal #${g.id}: ${g.title}`);
+    for (const a of g.acceptance) lines.push(`      [ ] ${a}`);
+  }
+  return lines.join('\n');
 }
 
 /**
@@ -170,13 +184,44 @@ export function prdRefinerPrompt(ctx: PromptContext): string {
     '  - Milestone-ordered task list the implementation team can follow',
     '  - Open questions for the human reviewer',
     '',
-    '### Outputs for Phase 1 (do BOTH)',
+    '### Outputs for Phase 1 (do ALL THREE)',
     `  1. Overwrite ${ctx.repoPath}/PRD.md with the refined version`,
     `     (the original is preserved at ${ctx.runDir}/prd-original.md).`,
     `  2. Also write the same content to ${ctx.runDir}/prd-draft.md (audit copy).`,
+    `  3. Emit one CRUISE:GOAL block per major requirement (see below).`,
+    '',
+    '### Structured goals — emit alongside the refined PRD',
+    '',
+    'For EACH major requirement in the refined PRD, emit a GOAL block. The',
+    'orchestrator persists these to cruise_goals and surfaces them in the UI;',
+    "builders later receive their assigned goals in their kickoff and the",
+    'reviewer verifies each one\'s acceptance criteria. Multiple GOAL blocks',
+    'per output are supported.',
+    '',
+    '    ' + BLOCKS.GOAL_BEGIN,
+    '    title: Implement signup with email verification',
+    '    owner: builder-backend',
+    '    acceptance:',
+    '      - POST /signup returns 201 and creates a user',
+    '      - Verification email is enqueued for the new address',
+    '      - GET /verify/:token activates the account',
+    '    description: |',
+    '      First-pass signup flow per PRD section 2.1. Use the existing mailer',
+    '      service; do not introduce a new dependency.',
+    '    ' + BLOCKS.GOAL_END,
+    '',
+    'Rules:',
+    '  - `title` is required; keep it under ~80 chars.',
+    '  - `owner` is optional. If you know which builder slice will own it,',
+    '    use the builder role id (e.g. builder-backend). Leave it off for',
+    "    run-level goals you can't assign yet — they'll be reassignable later.",
+    '  - `acceptance` should be 1-5 concrete, verifiable criteria. Each one',
+    '    must be something the reviewer can pass/fail without ambiguity.',
+    '  - `description` is optional context.',
     '',
     '### Done marker for Phase 1',
-    `When BOTH files are saved AND you have no blocking questions, emit:`,
+    `When BOTH files are saved, your GOAL blocks are emitted, AND you have`,
+    `no blocking questions, emit:`,
     `  ${MARKERS.PRD_DRAFT_COMPLETE}`,
     '',
     'The human will then approve (possibly with edits). After approval, the',
@@ -277,6 +322,16 @@ export function builderSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): str
     `  - ${ctx.repoPath}/AGENTS.md          (engineering conventions; read-only)`,
     `  - ${ctx.runDir}/inbox/${role}.md     (messages assigned to you)`,
     `  - ${ctx.runDir}/tasks.md             (open tasks assigned to you, if any)`,
+    `  - ${ctx.runDir}/goals.md             (the run's structured goals)`,
+    '',
+    '## Your goals',
+    '',
+    openGoalsBlock(ctx),
+    '',
+    'Every goal listed above is a first-class commitment. Address EVERY one',
+    `before emitting ${MARKERS.BUILD_COMPLETE}. For each goal, verify each`,
+    'acceptance criterion is met by your code (run tests, exercise the',
+    'endpoint, inspect output — whatever is appropriate).',
     '',
     '## What to produce',
     '  - Working code in your slice that satisfies the PRD',
@@ -294,8 +349,8 @@ export function builderSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): str
     '  Address findings. Skip if /codex is not available.',
     '',
     '## Done marker',
-    `When YOUR SLICE is complete, tested, and saved AND you have zero open`,
-    `tasks assigned to ${role}, emit:`,
+    `When YOUR SLICE is complete, every assigned goal\'s acceptance criteria`,
+    `are satisfied, AND you have zero open tasks assigned to ${role}, emit:`,
     `  ${MARKERS.BUILD_COMPLETE}`,
     '',
     'The build phase only advances when every builder emits its own',
@@ -389,9 +444,10 @@ export function reviewerSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): st
     'Instead, each finding becomes a LIVE task delivered to the responsible',
     'builder via TASK-FOR-{builderRole}. The orchestrator persists it and',
     'injects it directly into that builder\'s session, so the fix can start',
-    'immediately:',
+    'immediately. Tag every task with the goal it relates to (`goal=N`) so',
+    'the goal\'s status reflects open work:',
     '',
-    '    ===CRUISE:TASK-FOR-builder-backend severity=high===',
+    '    ===CRUISE:TASK-FOR-builder-backend severity=high goal=4===',
     '    The /readyz endpoint returns a tuple; the spec says dict.',
     '    File: apps/api/lana_api/controllers/health.py:42',
     '    ===CRUISE:END===',
@@ -399,6 +455,21 @@ export function reviewerSlotPrompt(ctx: PromptContext, spec: TeamMemberSpec): st
     'Assign each finding to the builder whose slice owns the offending code.',
     'If two slices share blame, address the primary owner first; you can',
     'send a follow-up to the secondary builder if needed.',
+    '',
+    '## Verify every goal',
+    '',
+    `Read ${ctx.runDir}/goals.md (mirrored from cruise_goals). For each goal,`,
+    'walk every acceptance criterion against the current repo. A goal is',
+    'verified only when ALL its criteria pass. For any criterion that fails:',
+    '',
+    '  - Emit a TASK-FOR-{owner} marker tagged with that goal\'s id',
+    '    (`goal=N`) so the orchestrator can keep the goal open against the',
+    '    builder until the fix lands.',
+    '  - Cite the specific failing acceptance criterion in the task body.',
+    '',
+    'Do not emit your acceptance marker while any goal has unverified',
+    'criteria — that is the most common reason reviews get rejected by the',
+    'human at the final gate.',
     '',
     `Also keep a running summary of your review at ${ctx.runDir}/review-${ctx.reviewCycle}.md`,
     `(append-only; one section per finding with the same TASK-FOR address`,

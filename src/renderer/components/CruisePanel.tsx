@@ -38,6 +38,25 @@ interface CruiseEvent {
   ts: string;
 }
 
+interface CruiseGoal {
+  id: number;
+  run_id: number;
+  title: string;
+  description: string | null;
+  acceptance_criteria: string[] | null;
+  owner_role: string | null;
+  status: 'open' | 'in_progress' | 'done' | 'deferred';
+  created_at: string;
+  completed_at: string | null;
+}
+
+const GOAL_STATUS_STYLES: Record<string, { color: string; label: string }> = {
+  open:          { color: '#9aa',     label: 'Open' },
+  in_progress:   { color: '#f5a623',  label: 'In progress' },
+  done:          { color: '#3ab36e',  label: 'Done' },
+  deferred:      { color: '#888',     label: 'Deferred' },
+};
+
 interface CruisePanelProps {
   theme: 'dark' | 'light';
   /** Reports which tab IDs are owned by Cruise (so App can dim them in TabBar) */
@@ -78,6 +97,8 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
   const [attentionByTab, setAttentionByTab] = useState<Record<string, string | null>>({});
   const [confirmStop, setConfirmStop] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [goals, setGoals] = useState<CruiseGoal[]>([]);
+  const [goalsExpanded, setGoalsExpanded] = useState(true);
   const eventsTailRef = useRef<HTMLDivElement>(null);
 
   // Initial load
@@ -113,6 +134,19 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
   }, [activeRunId, onCruiseTabsChange]);
 
   useEffect(() => { refreshActiveRun(); }, [refreshActiveRun]);
+
+  // Load goals for the active run
+  const refreshGoals = useCallback(async () => {
+    if (!activeRunId) { setGoals([]); return; }
+    try {
+      const list = await window.electronAPI.cruise.listGoals(activeRunId);
+      setGoals(list || []);
+    } catch (err: any) {
+      // soft fail — goals are non-blocking
+    }
+  }, [activeRunId]);
+
+  useEffect(() => { refreshGoals(); }, [refreshGoals]);
 
   // Auto-focus a lead agent whenever the phase changes (or when the
   // currently-focused tab no longer exists / hasn't been spawned yet).
@@ -173,6 +207,29 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
         return next;
       });
     });
+    const cleanupGoal = window.electronAPI.cruise.onGoal((g) => {
+      if (!activeRunId || g.runId !== activeRunId) return;
+      setGoals(prev => {
+        const idx = prev.findIndex(x => x.id === g.goalId);
+        const next: CruiseGoal = {
+          id: g.goalId,
+          run_id: g.runId,
+          title: g.title,
+          description: g.description,
+          acceptance_criteria: g.acceptanceCriteria || null,
+          owner_role: g.ownerRole,
+          status: g.status,
+          created_at: idx >= 0 ? prev[idx].created_at : new Date().toISOString(),
+          completed_at: g.status === 'done' ? new Date().toISOString() : (idx >= 0 ? prev[idx].completed_at : null),
+        };
+        if (idx >= 0) {
+          const copy = prev.slice();
+          copy[idx] = next;
+          return copy;
+        }
+        return [...prev, next];
+      });
+    });
     return () => {
       cleanupEvent();
       cleanupPhase();
@@ -180,6 +237,7 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
       cleanupFinished();
       cleanupAttention();
       cleanupAttentionClear();
+      cleanupGoal();
     };
   }, [activeRunId, loadRuns, refreshActiveRun, onAttentionChange]);
 
@@ -290,6 +348,17 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
     } catch (err: any) { setError(err?.message || 'delete failed'); }
   };
 
+  const handleToggleGoalStatus = async (goal: CruiseGoal) => {
+    const next: CruiseGoal['status'] = goal.status === 'done' ? 'open' : 'done';
+    try {
+      await window.electronAPI.cruise.updateGoal(goal.id, next);
+      // Optimistic local update; the cruise:goal listener will also reconcile.
+      setGoals(prev => prev.map(g => g.id === goal.id ? { ...g, status: next, completed_at: next === 'done' ? new Date().toISOString() : null } : g));
+    } catch (err: any) {
+      setError(err?.message || 'failed to update goal');
+    }
+  };
+
   return (
     <div className="cruise-panel" data-theme={theme}>
       <div className="cruise-sidebar">
@@ -361,6 +430,13 @@ export default function CruisePanel({ theme, onCruiseTabsChange, onAttentionChan
                 />
               ))}
             </div>
+
+            <GoalsPanel
+              goals={goals}
+              expanded={goalsExpanded}
+              onToggleExpanded={() => setGoalsExpanded(v => !v)}
+              onToggleStatus={handleToggleGoalStatus}
+            />
 
             {runDetails.run.current_phase === 'prd-approve' && (
               <div className="cruise-approval-gate">
@@ -564,6 +640,69 @@ function AgentCard({ agent, attentionReason, focused, onFocus, messageStats, tas
       )}
       {attentionReason && (
         <div className="cruise-agent-attention">⚠ {attentionReason}</div>
+      )}
+    </div>
+  );
+}
+
+function GoalsPanel({ goals, expanded, onToggleExpanded, onToggleStatus }: {
+  goals: CruiseGoal[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onToggleStatus: (goal: CruiseGoal) => void;
+}) {
+  const openCount = goals.filter(g => g.status === 'open' || g.status === 'in_progress').length;
+  const doneCount = goals.filter(g => g.status === 'done').length;
+  return (
+    <div className="cruise-goals-panel">
+      <div className="cruise-goals-header" onClick={onToggleExpanded}>
+        <span className="cruise-goals-toggle">{expanded ? '▾' : '▸'}</span>
+        <span className="cruise-goals-title">Goals</span>
+        <span className="cruise-goals-summary">
+          {goals.length === 0
+            ? '(none yet — the PRD Refiner declares goals while refining)'
+            : `${doneCount} done · ${openCount} open · ${goals.length} total`}
+        </span>
+      </div>
+      {expanded && goals.length > 0 && (
+        <div className="cruise-goals-list">
+          {goals.map(g => {
+            const stat = GOAL_STATUS_STYLES[g.status] || { color: '#888', label: g.status };
+            return (
+              <div key={g.id} className={`cruise-goal-item status-${g.status}`}>
+                <div className="cruise-goal-row">
+                  <button
+                    className="cruise-goal-status-pill"
+                    style={{ color: stat.color, borderColor: stat.color }}
+                    onClick={() => onToggleStatus(g)}
+                    title={g.status === 'done' ? 'Reopen goal' : 'Mark goal done'}
+                  >
+                    <span className="cruise-goal-dot" style={{ background: stat.color }} />
+                    {stat.label}
+                  </button>
+                  <span className="cruise-goal-id">#{g.id}</span>
+                  <span className="cruise-goal-title">{g.title}</span>
+                  {g.owner_role && <span className="cruise-goal-owner">{g.owner_role}</span>}
+                </div>
+                {g.acceptance_criteria && g.acceptance_criteria.length > 0 && (
+                  <ul className="cruise-goal-acceptance">
+                    {g.acceptance_criteria.map((c, i) => (
+                      <li key={i}>
+                        <span className={`cruise-goal-check ${g.status === 'done' ? 'checked' : ''}`}>
+                          {g.status === 'done' ? '☑' : '☐'}
+                        </span>
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {g.description && (
+                  <div className="cruise-goal-desc">{g.description}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );

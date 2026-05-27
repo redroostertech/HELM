@@ -902,6 +902,17 @@ function setupIPCHandlers() {
     return { ok: true };
   });
 
+  ipcMain.handle('cruise:listGoals', async (_, runId: number) => {
+    if (!cruiseOrchestrator) return [];
+    return cruiseOrchestrator.listGoals(runId);
+  });
+
+  ipcMain.handle('cruise:updateGoal', async (_, goalId: number, status: 'open' | 'in_progress' | 'done' | 'deferred') => {
+    if (!cruiseOrchestrator) throw new Error('Cruise orchestrator not initialized');
+    await cruiseOrchestrator.updateGoalStatus(goalId, status);
+    return { ok: true };
+  });
+
   ipcMain.handle('cruise:pickRepo', async () => {
     if (!mainWindow) return { path: null };
     const result = await dialog.showOpenDialog(mainWindow, {
